@@ -299,7 +299,7 @@
     recog.onstart = () => { $('micDot').classList.add('on'); };
     recog.onend = () => {
       $('micDot').classList.remove('on');
-      // セッション中は自動で再起動（iOSは認識が�手に切れるため）
+      // セッション中は自動で再起動（iOSは認識が勝手に切れるため）
       if (recogActive) { try { recog.start(); } catch(e) { setTimeout(() => recogActive && recog.start(), 400); } }
     };
     recog.onerror = e => { if (e.error === 'not-allowed') { $('statusText').textContent = 'マイクの許可が必要です'; recogActive = false; } };
