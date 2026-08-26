@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>素振りカウンター</title>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --board:#0c1210;        /* スコアボードの盤面 */
+    --board-line:#1c2a24;   /* 盤面の枠線 */
+    --lamp:#ffb627;         /* 電光の数字 */
+    --lamp-dim:#4a3a14;     /* 消灯ランプ */
+    --chalk:#f2efe6;        /* チョークの白 */
+    --clay:#b5652e;         /* 土の色（警告・停止） */
+    --grass:#2e7d4f;        /* 芝（開始・達成） */
+    --mute:#7a8a80;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    background:var(--board);
+    color:var(--chalk);
+    font-family:-apple-system,"Hiragino Sans",sans-serif;
+    display:flex;flex-direction:column;
+    min-height:100dvh;
+    user-select:none;
+  }
+  .dot{font-family:"DotGothic16",monospace}
+
+  /* ===== 上部：今日の目標と合計 ===== */
+  header{
+    padding:14px 16px 10px;
+    border-bottom:2px solid var(--board-line);
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  header .date{font-size:12px;color:var(--mute);letter-spacing:.08em}
+  header .gear{
+    background:none;border:1px solid var(--board-line);color:var(--mute);
+    border-radius:6px;padding:6px 10px;font-size:12px;
+  }
+  .goalbar{
+    display:flex;gap:8px;padding:12px 16px;
+    border-bottom:2px solid var(--board-line);
+    align-items:center;
+  }
+  .goalbar .cell{
+    flex:1;background:#080d0b;border:1px solid var(--board-line);
+    border-radius:8px;padding:8px 10px;text-align:center;
+  }
+  .cell .lbl{font-size:10px;color:var(--mute);letter-spacing:.15em;margin-bottom:2px}
+  .cell .num{font-size:22px;color:var(--lamp)}
+  .cell input{
+    width:100%;background:none;border:none;color:var(--lamp);
+    font-family:"DotGothic16",monospace;font-size:22px;text-align:center;outline:none;
+  }
+
+  /* ===== 中央：カウント表示 ===== */
+  main{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:10px 16px}
+  .count-panel{
+    width:100%;max-width:420px;
+    background:#080d0b;
+    border:2px solid var(--board-line);
+    border-radius:14px;
+    padding:18px 12px 10px;
+    text-align:center;
+    box-shadow:inset 0 0 40px rgba(0,0,0,.6);
+  }
+  .count-panel .lbl{font-size:11px;color:var(--mute);letter-spacing:.3em}
+  #count{
+    font-size:min(38vw,150px);
+    line-height:1.05;
+    color:var(--lamp);
+    text-shadow:0 0 18px rgba(255,182,39,.35);
+  }
+  #count.flash{animation:flash .25s}
+  @keyframes flash{50%{color:#fff;text-shadow:0 0 30px rgba(255,255,255,.8)}}
+  .goal-done #count{color:var(--grass);text-shadow:0 0 22px rgba(46,125,79,.6)}
+  .status{
+    margin-top:8px;min-height:20px;font-size:13px;color:var(--mute);
+    display:flex;justify-content:center;align-items:center;gap:8px;
+  }
+  .mic-dot{
+    width:9px;height:9px;border-radius:50%;background:var(--lamp-dim);
+    display:inline-block;
+  }
+  .mic-dot.on{background:#e05252;animation:blink 1.2s infinite}
+  @keyframes blink{50%{opacity:.3}}
+  #heard{font-size:12px;color:#556158;margin-top:4px;min-height:16px}
+  .goal-msg{
+    margin-top:10px;font-size:18px;color:var(--grass);
+    letter-spacing:.2em;visibility:hidden;
+  }
+  .goal-done .goal-msg{visibility:visible;animation:blink 1s infinite}
+
+  /* ===== 下部：操作ボタン ===== */
+  footer{padding:12px 16px calc(16px + env(safe-area-inset-bottom))}
+  .btn-row{display:flex;gap:10px;margin-bottom:10px}
+  button.big{
+    flex:1;border:none;border-radius:12px;
+    padding:16px 8px;font-size:17px;font-weight:700;color:#fff;
+    font-family:inherit;
+  }
+  #startBtn{background:var(--grass)}
+  #startBtn.stop{background:var(--clay)}
+  #plusBtn{background:#243530;color:var(--chalk);flex:0 0 80px}
+  #plusBtn:disabled,#finishBtn:disabled{opacity:.35}
+  #finishBtn{
+    width:100%;background:none;border:2px solid var(--board-line);
+    border-radius:12px;padding:13px;font-size:15px;color:var(--chalk);
+    font-family:inherit;
+  }
+  .note{font-size:11px;color:var(--mute);text-align:center;margin-top:8px}
+
+  /* ===== 設定・履歴 ===== */
+  dialog{
+    background:var(--board);color:var(--chalk);
+    border:2px solid var(--board-line);border-radius:14px;
+    width:min(92vw,420px);padding:18px;margin:auto;
+  }
+  dialog::backdrop{background:rgba(0,0,0,.7)}
+  dialog h2{font-size:15px;margin-bottom:12px;letter-spacing:.1em}
+  dialog label{font-size:12px;color:var(--mute);display:block;margin:10px 0 4px}
+  dialog input{
+    width:100%;background:#080d0b;border:1px solid var(--board-line);
+    border-radius:8px;padding:10px;color:var(--chalk);font-size:14px;
+  }
+  dialog .close{margin-top:16px;width:100%;background:#243530;border:none;
+    border-radius:10px;padding:12px;color:var(--chalk);font-size:14px;font-family:inherit}
+  .hist{font-size:12px;color:var(--mute);margin-top:12px;max-height:30vh;overflow-y:auto}
+  .hist div{padding:4px 0;border-bottom:1px solid var(--board-line)}
+  .hist .unsent{color:var(--clay)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="date dot" id="dateLabel"></div>
+  <button class="gear" id="gearBtn">設定</button>
+</header>
+
+<div class="goalbar">
+  <div class="cell">
+    <div class="lbl dot">きょうの目標</div>
+    <input class="dot" id="goalInput" type="number" inputmode="numeric" placeholder="--">
+  </div>
+  <div class="cell">
+    <div class="lbl dot">きょうの合計</div>
+    <div class="num dot" id="todayTotal">0</div>
+  </div>
+  <div class="cell">
+    <div class="lbl dot">あと</div>
+    <div class="num dot" id="remain">--</div>
+  </div>
+</div>
+
+<main>
+  <div class="count-panel" id="panel">
+    <div class="lbl dot">COUNT</div>
+    <div class="dot" id="count">0</div>
+    <div class="status">
+      <span class="mic-dot" id="micDot"></span>
+      <span id="statusText">「スタート」を押して、数えながら振ろう</span>
+    </div>
+    <div id="heard"></div>
+    <div class="goal-msg dot">★ 目標たっせい！ ★</div>
+  </div>
+</main>
+
+<footer>
+  <div class="btn-row">
+    <button class="big" id="startBtn">スタート</button>
+    <button class="big" id="plusBtn" disabled>+1</button>
+  </div>
+  <button id="finishBtn" disabled>セッション終了して記録する</button>
+  <div class="note">声で「いち、に、さん…」と数えるとカウントされます</div>
+</footer>
+
+<dialog id="settingsDlg">
+  <h2>設定（おうちの人用）</h2>
+  <label>記録送信先URL（GASウェブアプリ）</label>
+  <input id="gasUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec">
+  <label>カウントの最短間隔（秒）</label>
+  <input id="minInterval" type="number" step="0.1" min="0.5">
+  <div class="hist" id="histList"></div>
+  <button class="close" id="closeDlg">閉じる</button>
+</dialog>
+
+<script>
+(() => {
+  'use strict';
+
+  // ===== 状態 =====
+  const LS = {
+    goal:  d => 'sb_goal_'  + d,
+    total: d => 'sb_total_' + d,
+    hist:  'sb_history',
+    gas:   'sb_gas_url',
+    intv:  'sb_min_interval',
+  };
+  const todayKey = () => {
+    const n = new Date();
+    return n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0');
+  };
+
+  let session = null;        // {start, count, manual, lastCountAt}
+  let recog = null;
+  let recogActive = false;
+  let wakeLock = null;
+
+  const $ = id => document.getElementById(id);
+  const minInterval = () => parseFloat(localStorage.getItem(LS.intv) || '1.2');
+
+  // ===== 表示更新 =====
+  function refreshTop() {
+    const d = todayKey();
+    const goal  = parseInt(localStorage.getItem(LS.goal(d))  || '0', 10);
+    const total = parseInt(localStorage.getItem(LS.total(d)) || '0', 10);
+    const live  = total + (session ? session.count + session.manual : 0);
+    $('goalInput').value = goal || '';
+    $('todayTotal').textContent = live;
+    $('remain').textContent = goal ? Math.max(0, goal - live) : '--';
+    document.body.classList.toggle('goal-done', goal > 0 && live >= goal);
+  }
+
+  function setCount(n, flash) {
+    session.count = n;
+    $('count').textContent = n + session.manual;
+    if (flash) {
+      $('count').classList.remove('flash');
+      void $('count').offsetWidth;
+      $('count').classList.add('flash');
+    }
+    refreshTop();
+  }
+
+  // ===== 数字の聞き取り =====
+  const KANJI = {'〇':0,'零':0,'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10};
+  function extractNumbers(text) {
+    const out = [];
+    // 算用数字
+    (text.match(/\d+/g) || []).forEach(s => out.push(parseInt(s, 10)));
+    // 簡単な漢数字（十まで＋「十一〜九十九」）
+    const km = text.match(/[〇零一二三四五六七八九十]+/g) || [];
+    km.forEach(s => {
+      if (s.length === 1) { out.push(KANJI[s]); return; }
+      const ti = s.indexOf('十');
+      if (ti >= 0) {
+        const tens = ti === 0 ? 1 : (KANJI[s[ti-1]] || 0);
+        const ones = ti < s.length - 1 ? (KANJI[s[ti+1]] || 0) : 0;
+        out.push(tens * 10 + ones);
+      }
+    });
+    return out.filter(n => Number.isInteger(n) && n > 0 && n < 10000);
+  }
+
+  // 聞き取った数字をカウントに反映（ズル防止ルールつき）
+  function applyNumber(n) {
+    if (!session) return;
+    const now = Date.now();
+    const cur = session.count;
+    const sinceLast = (now - session.lastCountAt) / 1000;
+    const elapsed   = (now - session.start) / 1000;
+
+    if (n === cur + 1) {
+      // 通常の+1：最短間隔チェック
+      if (sinceLast >= minInterval()) {
+        session.lastCountAt = now;
+        setCount(n, true);
+      }
+    } else if (n > cur + 1 && n <= cur + 3) {
+      // 認識が数回抜けたときの追いつき：経過時間が妥当なときだけ許可
+      if (elapsed >= n * minInterval() * 0.8) {
+        session.lastCountAt = now;
+        setCount(n, true);
+      }
+    }
+    // それ以外（大ジャンプ・巻き戻し）は無視 ＝ 「100！」と叫んでも飛ばない
+  }
+
+  // ===== 音声認識 =====
+  function startRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { $('statusText').textContent = 'このブラウザは音声認識に未対応です（手動+1で使えます）'; return; }
+    recog = new SR();
+    recog.lang = 'ja-JP';
+    recog.continuous = true;
+    recog.interimResults = true;
+
+    recog.onresult = ev => {
+      let latest = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        latest += ev.results[i][0].transcript;
+      }
+      $('heard').textContent = '聞こえた声：' + latest.slice(-20);
+      extractNumbers(latest).forEach(applyNumber);
+    };
+    recog.onstart = () => { $('micDot').classList.add('on'); };
+    recog.onend = () => {
+      $('micDot').classList.remove('on');
+      // セッション中は自動で再起動（iOSは認識が�手に切れるため）
+      if (recogActive) { try { recog.start(); } catch(e) { setTimeout(() => recogActive && recog.start(), 400); } }
+    };
+    recog.onerror = e => { if (e.error === 'not-allowed') { $('statusText').textContent = 'マイクの許可が必要です'; recogActive = false; } };
+
+    recogActive = true;
+    try { recog.start(); } catch(e) {}
+  }
+
+  function stopRecognition() {
+    recogActive = false;
+    if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
+    $('micDot').classList.remove('on');
+  }
+
+  // ===== 画面スリープ防止 =====
+  async function acquireWakeLock() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && session) acquireWakeLock();
+  });
+
+  // ===== セッション =====
+  function startSession() {
+    session = { start: Date.now(), count: 0, manual: 0, lastCountAt: 0 };
+    $('count').textContent = '0';
+    $('startBtn').textContent = 'ストップ';
+    $('startBtn').classList.add('stop');
+    $('plusBtn').disabled = false;
+    $('finishBtn').disabled = false;
+    $('statusText').textContent = '数えながら振ろう！';
+    startRecognition();
+    acquireWakeLock();
+    refreshTop();
+  }
+
+  function pauseSession() {
+    stopRecognition();
+    $('startBtn').textContent = 'さいかい';
+    $('startBtn').classList.remove('stop');
+    $('statusText').textContent = 'きゅうけい中';
+  }
+
+  function resumeSession() {
+    $('startBtn').textContent = 'ストップ';
+    $('startBtn').classList.add('stop');
+    $('statusText').textContent = '数えながら振ろう！';
+    startRecognition();
+  }
+
+  async function finishSession() {
+    if (!session) return;
+    const total = session.count + session.manual;
+    if (total === 0) { resetUI(); return; }
+    if (!confirm(total + '回で記録します。いいですか？')) return;
+
+    stopRecognition();
+    const d = todayKey();
+    const rec = {
+      date: d,
+      start: new Date(session.start).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit',second:'2-digit'}),
+      end:   new Date().toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit',second:'2-digit'}),
+      seconds: Math.round((Date.now() - session.start) / 1000),
+      voice: session.count,
+      manual: session.manual,
+      total: total,
+      goal: parseInt(localStorage.getItem(LS.goal(d)) || '0', 10),
+      sent: false,
+    };
+
+    // 今日の合計に加算
+    localStorage.setItem(LS.total(d), String(parseInt(localStorage.getItem(LS.total(d)) || '0', 10) + total));
+
+    // 履歴に保存
+    const hist = JSON.parse(localStorage.getItem(LS.hist) || '[]');
+    hist.push(rec);
+    localStorage.setItem(LS.hist, JSON.stringify(hist.slice(-100)));
+
+    resetUI();
+    refreshTop();
+    await sendUnsent();
+  }
+
+  function resetUI() {
+    session = null;
+    stopRecognition();
+    if (wakeLock) { try { wakeLock.release(); } catch(e) {} wakeLock = null; }
+    $('startBtn').textContent = 'スタート';
+    $('startBtn').classList.remove('stop');
+    $('plusBtn').disabled = true;
+    $('finishBtn').disabled = true;
+    $('count').textContent = '0';
+    $('statusText').textContent = '「スタート」を押して、数えながら振ろう';
+    $('heard').textContent = '';
+  }
+
+  // ===== GASへ送信（未送信分をまとめて） =====
+  async function sendUnsent() {
+    const url = localStorage.getItem(LS.gas) || '';
+    if (!url) { $('statusText').textContent = '記録しました（送信先URLは未設定）'; return; }
+    const hist = JSON.parse(localStorage.getItem(LS.hist) || '[]');
+    const unsent = hist.filter(r => !r.sent);
+    if (unsent.length === 0) return;
+    $('statusText').textContent = '記録を送信中…';
+    for (const r of unsent) {
+      try {
+        await fetch(url, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: {'Content-Type': 'text/plain'},
+          body: JSON.stringify(r),
+        });
+        r.sent = true;
+      } catch(e) { break; } // 電波がないときは次回に持ち越し
+    }
+    localStorage.setItem(LS.hist, JSON.stringify(hist));
+    $('statusText').textContent = unsent.every(r => r.sent) ? '記録を送信しました！' : '一部は電波のある場所で再送されます';
+  }
+
+  // ===== イベント =====
+  $('startBtn').addEventListener('click', () => {
+    if (!session) startSession();
+    else if (recogActive) pauseSession();
+    else resumeSession();
+  });
+
+  $('plusBtn').addEventListener('click', () => {
+    if (!session) return;
+    const now = Date.now();
+    if ((now - session.lastCountAt) / 1000 < minInterval()) return; // 連打防止
+    session.lastCountAt = now;
+    session.manual++;
+    setCount(session.count, true);
+  });
+
+  $('finishBtn').addEventListener('click', finishSession);
+
+  $('goalInput').addEventListener('change', () => {
+    const v = Math.max(0, parseInt($('goalInput').value || '0', 10));
+    localStorage.setItem(LS.goal(todayKey()), String(v));
+    refreshTop();
+  });
+
+  // ===== 設定ダイアログ =====
+  $('gearBtn').addEventListener('click', () => {
+    $('gasUrl').value = localStorage.getItem(LS.gas) || '';
+    $('minInterval').value = minInterval();
+    const hist = JSON.parse(localStorage.getItem(LS.hist) || '[]').slice(-20).reverse();
+    $('histList').innerHTML = hist.map(r =>
+      '<div class="' + (r.sent ? '' : 'unsent') + '">' +
+      r.date + ' ' + r.start + '〜' + r.end + '　' + r.total + '回' +
+      (r.sent ? '' : '（未送信）') + '</div>'
+    ).join('') || '<div>まだ記録がありません</div>';
+    $('settingsDlg').showModal();
+  });
+  $('closeDlg').addEventListener('click', () => {
+    localStorage.setItem(LS.gas, $('gasUrl').value.trim());
+    localStorage.setItem(LS.intv, $('minInterval').value || '1.2');
+    $('settingsDlg').close();
+    sendUnsent();
+  });
+
+  // ===== 初期化 =====
+  const n = new Date();
+  $('dateLabel').textContent = n.getFullYear() + '/' + (n.getMonth()+1) + '/' + n.getDate() +
+    '（' + '日月火水木金土'[n.getDay()] + '）';
+  refreshTop();
+  sendUnsent();
+})();
+</script>
+</body>
+</html>
