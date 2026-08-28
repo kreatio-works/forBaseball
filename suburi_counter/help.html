@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>使い方 | 素振りカウンター</title>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --board:#0c1210; --board-line:#1c2a24; --lamp:#ffb627;
+    --chalk:#f2efe6; --clay:#b5652e; --grass:#2e7d4f; --mute:#7a8a80;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:var(--board); color:var(--chalk);
+    font-family:-apple-system,"Hiragino Sans",sans-serif;
+    line-height:1.9; padding:20px 18px 60px;
+    max-width:560px; margin:0 auto;
+  }
+  .dot{font-family:"DotGothic16",monospace}
+  h1{font-size:22px; color:var(--lamp); letter-spacing:.08em; margin-bottom:4px}
+  .sub{font-size:12px; color:var(--mute); margin-bottom:24px}
+  section{
+    background:#080d0b; border:1px solid var(--board-line);
+    border-radius:12px; padding:16px; margin-bottom:16px;
+  }
+  h2{font-size:15px; color:var(--lamp); letter-spacing:.1em; margin-bottom:10px}
+  ol{padding-left:1.4em}
+  li{margin-bottom:8px; font-size:14px}
+  p{font-size:14px; margin-bottom:8px}
+  .say{
+    display:inline-block; background:#1a241f; border-radius:6px;
+    padding:1px 8px; color:var(--lamp);
+  }
+  .tip{font-size:12px; color:var(--mute); border-top:1px dashed var(--board-line); padding-top:8px; margin-top:10px}
+  .warn{color:var(--clay)}
+  a.back{
+    display:block; text-align:center; margin-top:24px;
+    background:var(--grass); color:#fff; text-decoration:none;
+    border-radius:12px; padding:14px; font-size:16px; font-weight:700;
+  }
+</style>
+</head>
+<body>
+
+<h1 class="dot">素振りカウンター つかいかた</h1>
+<p class="sub">声で数えるだけで、素振りの回数を記録できます</p>
+
+<section>
+  <h2 class="dot">▶ きほんの使い方</h2>
+  <ol>
+    <li>「きょうの目標」に回数を入れる（自分で決めてOK。朝と夜に分けても大丈夫）</li>
+    <li><b>スタート</b>を押す。はじめての時はマイクの許可が出るので「許可」</li>
+    <li>バットを振りながら <span class="say">いち、に、さん…</span> と声に出して数える</li>
+    <li>休むときは<b>ストップ</b>、終わったら<b>「セッション終了して記録する」</b></li>
+  </ol>
+  <p class="tip">合計が目標に届くと、数字が緑になってお祝いが出ます 🎉</p>
+</section>
+
+<section>
+  <h2 class="dot">▶ 数えるときのコツ</h2>
+  <p>・ふつうの素振りのペースでハッキリ数えればOK。早口すぎるとカウントされません（1回1.2秒以上）</p>
+  <p>・カウントを言いまちがえたり、多く進んでしまったら <span class="say">まちがい</span> と言うと1つ戻ります（−1ボタンでもOK）</p>
+  <p>・声がうまく入らないときは、スマホを近くに置くか、＋1ボタンを使ってください</p>
+</section>
+
+<section>
+  <h2 class="dot">▶ おうちの人へ</h2>
+  <p>記録はセッションごとに「日付・開始/終了時刻・所要時間・回数」が残ります。右上の<b>設定</b>から履歴を確認できます。</p>
+  <p>チームで使っている場合は、終了時にコーチのスプレッドシートへ自動送信されます。グラウンドに電波がなくても、電波が入ったときに自動で再送されるので大丈夫です。</p>
+  <p class="tip"><span class="warn">テストで数えてしまったとき</span>は「記録せずにやり直す」を押せば記録に残りません。</p>
+</section>
+
+<section>
+  <h2 class="dot">▶ うまく動かないとき</h2>
+  <p>・マイクを「許可しない」にしてしまった → ブラウザの設定からこのサイトのマイクを許可し直してください</p>
+  <p>・カウントが進まない → 画面の「聞こえた声」に文字が出ているか確認。出ていなければマイクが動いていません</p>
+  <p>・iPhoneはSafariかChromeで開いてください</p>
+</section>
+
+<a class="back" href="./">アプリにもどる</a>
+
+</body>
+</html>

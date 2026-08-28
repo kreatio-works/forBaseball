@@ -104,8 +104,12 @@
   }
   #startBtn{background:var(--grass)}
   #startBtn.stop{background:var(--clay)}
-  #plusBtn{background:#243530;color:var(--chalk);flex:0 0 80px}
-  #plusBtn:disabled,#finishBtn:disabled{opacity:.35}
+  #plusBtn,#minusBtn{background:#243530;color:var(--chalk);flex:0 0 70px}
+  #plusBtn:disabled,#minusBtn:disabled,#finishBtn:disabled,#discardBtn:disabled{opacity:.35}
+  #discardBtn{
+    width:100%;background:none;border:none;margin-top:10px;
+    font-size:13px;color:var(--mute);text-decoration:underline;font-family:inherit;
+  }
   #finishBtn{
     width:100%;background:none;border:2px solid var(--board-line);
     border-radius:12px;padding:13px;font-size:15px;color:var(--chalk);
@@ -137,7 +141,10 @@
 
 <header>
   <div class="date dot" id="dateLabel"></div>
-  <button class="gear" id="gearBtn">設定</button>
+  <div>
+    <a class="gear" href="help.html" style="text-decoration:none;display:inline-block;margin-right:6px">使い方</a>
+    <button class="gear" id="gearBtn">設定</button>
+  </div>
 </header>
 
 <div class="goalbar">
@@ -172,13 +179,17 @@
   <div class="btn-row">
     <button class="big" id="startBtn">スタート</button>
     <button class="big" id="plusBtn" disabled>+1</button>
+    <button class="big" id="minusBtn" disabled>−1</button>
   </div>
   <button id="finishBtn" disabled>セッション終了して記録する</button>
-  <div class="note">声で「いち、に、さん…」と数えるとカウントされます</div>
+  <button id="discardBtn" disabled>記録せずにやり直す</button>
+  <div class="note">声で「いち、に、さん…」と数える／「まちがい」で1つもどる</div>
 </footer>
 
 <dialog id="settingsDlg">
   <h2>設定（おうちの人用）</h2>
+  <label>ニックネーム（チームで使うとき）</label>
+  <input id="nickName" type="text" placeholder="例：たろう">
   <label>記録送信先URL（GASウェブアプリ）</label>
   <input id="gasUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec">
   <label>カウントの最短間隔（秒）</label>
@@ -197,6 +208,7 @@
     total: d => 'sb_total_' + d,
     hist:  'sb_history',
     gas:   'sb_gas_url',
+    name:  'sb_name',
     intv:  'sb_min_interval',
   };
   const todayKey = () => {
@@ -279,6 +291,20 @@
     // それ以外（大ジャンプ・巻き戻し）は無視 ＝ 「100！」と叫んでも飛ばない
   }
 
+  // 1つ戻す（連続で戻りすぎないよう2秒のクールダウン）
+  let lastUndoAt = 0;
+  function undoOne() {
+    if (!session) return;
+    const now = Date.now();
+    if (now - lastUndoAt < 2000) return;
+    if (session.manual > 0) session.manual--;
+    else if (session.count > 0) session.count--;
+    else return;
+    lastUndoAt = now;
+    setCount(session.count, true);
+    $('statusText').textContent = '1つもどしました';
+  }
+
   // ===== 音声認識 =====
   function startRecognition() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -291,7 +317,10 @@
     recog.onresult = ev => {
       let latest = '';
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        latest += ev.results[i][0].transcript;
+        const t = ev.results[i][0].transcript;
+        latest += t;
+        // 確定した認識結果に「まちがい」があれば1つ戻す
+        if (ev.results[i].isFinal && /まちがい|間違い/.test(t)) undoOne();
       }
       $('heard').textContent = '聞こえた声：' + latest.slice(-20);
       extractNumbers(latest).forEach(applyNumber);
@@ -329,7 +358,9 @@
     $('startBtn').textContent = 'ストップ';
     $('startBtn').classList.add('stop');
     $('plusBtn').disabled = false;
+    $('minusBtn').disabled = false;
     $('finishBtn').disabled = false;
+    $('discardBtn').disabled = false;
     $('statusText').textContent = '数えながら振ろう！';
     startRecognition();
     acquireWakeLock();
@@ -357,8 +388,17 @@
     if (!confirm(total + '回で記録します。いいですか？')) return;
 
     stopRecognition();
+
+    // チーム運用（送信先あり）でニックネーム未設定なら聞く
+    let name = localStorage.getItem(LS.name) || '';
+    if (!name && (localStorage.getItem(LS.gas) || '')) {
+      name = (prompt('ニックネームを入れてね（コーチへの報告に表示されます）') || '').trim();
+      if (name) localStorage.setItem(LS.name, name);
+    }
+
     const d = todayKey();
     const rec = {
+      name: name,
       date: d,
       start: new Date(session.start).toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit',second:'2-digit'}),
       end:   new Date().toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit',second:'2-digit'}),
@@ -390,7 +430,9 @@
     $('startBtn').textContent = 'スタート';
     $('startBtn').classList.remove('stop');
     $('plusBtn').disabled = true;
+    $('minusBtn').disabled = true;
     $('finishBtn').disabled = true;
+    $('discardBtn').disabled = true;
     $('count').textContent = '0';
     $('statusText').textContent = '「スタート」を押して、数えながら振ろう';
     $('heard').textContent = '';
@@ -435,7 +477,17 @@
     setCount(session.count, true);
   });
 
+  $('minusBtn').addEventListener('click', undoOne);
+
   $('finishBtn').addEventListener('click', finishSession);
+
+  $('discardBtn').addEventListener('click', () => {
+    if (!session) return;
+    if (confirm('この回のカウントを記録せずに消します。いいですか？')) {
+      resetUI();
+      refreshTop();
+    }
+  });
 
   $('goalInput').addEventListener('change', () => {
     const v = Math.max(0, parseInt($('goalInput').value || '0', 10));
@@ -445,6 +497,7 @@
 
   // ===== 設定ダイアログ =====
   $('gearBtn').addEventListener('click', () => {
+    $('nickName').value = localStorage.getItem(LS.name) || '';
     $('gasUrl').value = localStorage.getItem(LS.gas) || '';
     $('minInterval').value = minInterval();
     const hist = JSON.parse(localStorage.getItem(LS.hist) || '[]').slice(-20).reverse();
@@ -456,6 +509,7 @@
     $('settingsDlg').showModal();
   });
   $('closeDlg').addEventListener('click', () => {
+    localStorage.setItem(LS.name, $('nickName').value.trim());
     localStorage.setItem(LS.gas, $('gasUrl').value.trim());
     localStorage.setItem(LS.intv, $('minInterval').value || '1.2');
     $('settingsDlg').close();
@@ -463,6 +517,11 @@
   });
 
   // ===== 初期化 =====
+  // 配布リンク対応：?gas=…&name=… が付いていたら自動で設定に取り込む
+  const qp = new URLSearchParams(location.search);
+  if (qp.get('gas'))  localStorage.setItem(LS.gas,  qp.get('gas').trim());
+  if (qp.get('name')) localStorage.setItem(LS.name, qp.get('name').trim());
+
   const n = new Date();
   $('dateLabel').textContent = n.getFullYear() + '/' + (n.getMonth()+1) + '/' + n.getDate() +
     '（' + '日月火水木金土'[n.getDay()] + '）';
