@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RidePlan — チームの配車表メーカー</title>
+<meta name="theme-color" content="#2E6B4F">
+<meta name="apple-mobile-web-app-title" content="RidePlan">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<style>
+:root{
+  --ink:#17332A;      /* 濃い緑：見出し・Dr席 */
+  --field:#2E6B4F;    /* フィールド緑：ヘッダー・主ボタン */
+  --paper:#F3F5F2;    /* 背景 */
+  --card:#FFFFFF;
+  --line:#D5DDD8;
+  --seat:#E4EEE8;     /* 空席 */
+  --seatOn:#FFFFFF;   /* 乗車済み席 */
+  --mute:#6B7A73;
+  --alert:#C9502A;
+  --warn:#E2A72E;
+  --radius:12px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+  font-size:15px;line-height:1.5}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit;padding:0}
+input,select,textarea{font:inherit;color:inherit}
+h1,h2,h3{margin:0;font-weight:700}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---- header ---- */
+header{position:sticky;top:0;z-index:20;background:var(--field);color:#fff;
+  padding:10px 14px calc(6px + 0px);padding-top:calc(10px + env(safe-area-inset-top))}
+.hd-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.hd-title{font-size:17px;font-weight:700;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hd-sub{font-size:12px;opacity:.85}
+.tabs{display:flex;gap:6px;margin-top:8px}
+.tab{flex:1;padding:8px 0;border-radius:8px;background:rgba(255,255,255,.12);color:#fff;font-weight:700;font-size:14px;text-align:center}
+.tab.on{background:#fff;color:var(--field)}
+.hd-btn{padding:6px 10px;border-radius:8px;background:rgba(255,255,255,.16);color:#fff;font-weight:700;font-size:13px;white-space:nowrap}
+
+/* ---- layout ---- */
+main{max-width:720px;margin:0 auto;padding:14px 12px calc(40px + env(safe-area-inset-bottom))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:12px}
+.sec-h{display:flex;align-items:center;justify-content:space-between;margin:14px 0 8px}
+.sec-h h2{font-size:14px;color:var(--mute);letter-spacing:.06em}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 14px;border-radius:10px;
+  background:var(--field);color:#fff;font-weight:700;font-size:14px;white-space:nowrap}
+.btn.sub{background:#fff;color:var(--field);border:1.5px solid var(--field)}
+.btn.ghost{background:transparent;color:var(--mute);border:1px solid var(--line)}
+.btn.danger{background:#fff;color:var(--alert);border:1.5px solid var(--alert)}
+.btn.sm{padding:6px 10px;font-size:13px;border-radius:8px}
+.btn.wide{width:100%}
+.row{display:flex;gap:8px;align-items:center}
+.row.wrap{flex-wrap:wrap}
+.grow{flex:1;min-width:0}
+.field{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
+.field label{font-size:12px;color:var(--mute);font-weight:700}
+.field input,.field select,.field textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.field input:focus,.field select:focus,.field textarea:focus{outline:2px solid var(--field);outline-offset:1px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 8px}
+.muted{color:var(--mute);font-size:13px}
+.empty{color:var(--mute);text-align:center;padding:22px 8px;font-size:14px}
+
+/* ---- home list ---- */
+.rec{display:block;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin-bottom:10px}
+.rec:active{background:var(--seat)}
+.rec .d{font-size:12px;color:var(--mute);font-weight:700}
+.rec .t{font-size:16px;font-weight:700;margin:2px 0}
+.rec .m{font-size:13px;color:var(--mute)}
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:700;background:var(--seat);color:var(--field);margin-left:6px}
+
+/* ---- status bar ---- */
+.status{position:sticky;top:calc(96px + env(safe-area-inset-top));z-index:10;background:var(--ink);color:#fff;border-radius:10px;
+  padding:8px 12px;display:flex;justify-content:space-around;margin-bottom:12px;font-size:13px}
+.status b{font-size:18px;margin-right:2px}
+.status .bad{color:#FFC98F}
+
+/* ---- car card ---- */
+.car{padding:0;overflow:hidden}
+.car-head{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.car-head .name{font-weight:700;font-size:16px}
+.car-head .cap{font-size:12px;color:var(--mute)}
+.sw{width:44px;height:26px;border-radius:99px;background:#CBD3CE;position:relative;flex:none;transition:background .15s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+.sw.on{background:var(--field)}
+.sw.on::after{left:21px}
+.car-body{border-top:1px dashed var(--line);padding:10px 12px 12px}
+.ctrl{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.ctrl .field{margin:0}
+.step{display:flex;align-items:center;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+.step button{width:36px;height:38px;font-size:18px;color:var(--field);font-weight:700}
+.step span{flex:1;text-align:center;font-weight:700}
+
+/* 座席マップ（このアプリの顔） */
+.seats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.seat{height:46px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;
+  border:1.5px solid var(--line);background:var(--seat);color:var(--ink);padding:0 4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.seat.dr{background:var(--ink);color:#fff;border-color:var(--ink);flex-direction:column;line-height:1.1;font-size:12px}
+.seat.dr small{font-size:10px;opacity:.75}
+.seat.cargo{background:repeating-linear-gradient(135deg,#EEF2EF 0 6px,#E0E6E2 6px 12px);color:var(--mute);border-style:dashed;font-size:12px}
+.seat.extra{background:#F5F0E6;color:#8A7550;border-color:#E3D9C4;border-style:dashed;font-size:12px}
+.seat.open{background:#fff;border-style:dashed;color:var(--field);font-size:22px;font-weight:400}
+.seat.on{background:var(--seatOn);border-color:var(--field);border-width:2px}
+.seat.over{background:#FBE7E0;border-color:var(--alert);color:var(--alert)}
+.seat-note{font-size:12px;color:var(--mute);margin-top:6px}
+
+/* ---- member chips ---- */
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{padding:8px 12px;border-radius:99px;background:#fff;border:1.5px solid var(--field);color:var(--field);font-weight:700;font-size:14px}
+.chip.abs{border-color:var(--line);color:var(--mute);background:var(--paper);text-decoration:line-through}
+.chip .g{font-size:11px;opacity:.7;margin-left:3px}
+
+/* ---- settings lists ---- */
+.li{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.li:last-child{border-bottom:0}
+.li input[type=text],.li input[type=number]{padding:8px;border:1px solid var(--line);border-radius:8px;min-width:0}
+.ico{width:34px;height:34px;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--mute);flex:none;font-size:15px}
+.ico.del{color:var(--alert)}
+
+/* ---- modal ---- */
+.ov{position:fixed;inset:0;background:rgba(23,51,42,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center}
+.ov .box{background:#fff;width:100%;max-width:720px;border-radius:16px 16px 0 0;padding:14px 14px calc(18px + env(safe-area-inset-bottom));max-height:80vh;overflow:auto}
+.ov h3{font-size:15px;margin-bottom:10px}
+.opt{display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left;padding:12px 10px;border-bottom:1px solid var(--line);font-weight:700}
+.opt .r{font-size:12px;color:var(--mute);font-weight:400}
+.opt.dis{color:var(--mute);opacity:.6}
+.opt.warnopt{color:var(--alert)}
+.help h4{font-size:14px;margin:14px 0 4px;color:var(--field)}
+.help h4:first-child{margin-top:0}
+.help p{margin:0 0 6px;font-size:14px}
+.help ul{margin:0 0 6px;padding-left:18px;font-size:14px}
+.help li{margin-bottom:3px}
+textarea.out{width:100%;height:240px;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:13px;line-height:1.5}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:99px;font-size:14px;z-index:60;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+
+/* ---- print ---- */
+#print{display:none}
+@media print{
+  header,main,.ov,.toast{display:none !important}
+  html,body{background:#fff}
+  #print{display:block;padding:10mm 12mm;font-size:12px;color:#000}
+  #print h1{font-size:18px;margin-bottom:2px}
+  #print .meta{font-size:12px;margin-bottom:10px;line-height:1.6}
+  #print table{width:100%;border-collapse:collapse;margin-bottom:8px}
+  #print th,#print td{border:1px solid #000;padding:5px 7px;text-align:left;vertical-align:top}
+  #print th{background:#eee;font-weight:700;width:120px}
+  #print .foot{font-size:11px;color:#444;margin-top:8px}
+  @page{size:A4 portrait;margin:8mm}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hd-row">
+    <div class="grow">
+      <div class="hd-title" id="hdTitle">RidePlan</div>
+      <div class="hd-sub" id="hdSub"></div>
+    </div>
+    <button class="hd-btn" id="hdBack" style="display:none">◀ 一覧へ</button>
+    <button class="hd-btn" onclick="showHelp()">❓ 使い方</button>
+  </div>
+  <div class="tabs" id="tabs">
+    <button class="tab on" data-v="home">🚗 配車</button>
+    <button class="tab" data-v="settings">⚙️ 設定</button>
+  </div>
+</header>
+
+<main id="view"></main>
+<div id="print"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* =============== データ =============== */
+const KEY_S='rideplan_settings_v1', KEY_R='rideplan_records_v1';
+let S = load(KEY_S) || {club:'', cars:[], members:[]};
+let R = load(KEY_R) || [];
+let view='home', curId=null;
+
+function load(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } }
+function saveS(){ localStorage.setItem(KEY_S, JSON.stringify(S)); }
+function saveR(){ localStorage.setItem(KEY_R, JSON.stringify(R)); }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function cur(){ return R.find(r=>r.id===curId); }
+function carOf(rec,c){ if(!rec.cars[c.id]) rec.cars[c.id]={use:false,driver:c.driver||'',cargo:0,extra:0,riders:[]}; return rec.cars[c.id]; }
+function memberSeats(c,d){ return Math.max(0, (c.cap|0)-1-(d.cargo|0)-(d.extra|0)); }
+function mName(id){ const m=S.members.find(m=>m.id===id); return m?m.name:'(削除済)'; }
+function fmtDate(s){ if(!s) return ''; const d=new Date(s+'T00:00:00'); if(isNaN(d)) return s;
+  return (d.getMonth()+1)+'/'+d.getDate()+'（'+'日月火水木金土'[d.getDay()]+'）'; }
+function toast(t){ const e=document.getElementById('toast'); e.textContent=t; e.classList.add('show'); setTimeout(()=>e.classList.remove('show'),1600); }
+
+function newRecord(base){
+  const r={id:uid(),title:'',date:new Date().toISOString().slice(0,10),trip:'',meetTime:'',meetPlace:'',depTime:'',dest:'',memo:'',absent:[],cars:{},updatedAt:Date.now()};
+  if(base){
+    Object.assign(r,{title:base.title,date:base.date,trip:'',meetTime:base.meetTime,meetPlace:base.meetPlace,depTime:base.depTime,dest:base.dest,memo:base.memo,
+      absent:[...base.absent],cars:JSON.parse(JSON.stringify(base.cars))});
+  }
+  return r;
+}
+
+/* =============== 画面切替 =============== */
+function go(v,id){
+  view=v; if(id!==undefined) curId=id;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on', t.dataset.v===(v==='edit'?'home':v)));
+  document.getElementById('hdBack').style.display = v==='edit'?'':'none';
+  document.getElementById('hdTitle').textContent = S.club ? 'RidePlan　'+S.club : 'RidePlan';
+  render(); window.scrollTo(0,0);
+}
+document.getElementById('tabs').addEventListener('click',e=>{ const t=e.target.closest('.tab'); if(t) go(t.dataset.v); });
+document.getElementById('hdBack').addEventListener('click',()=>go('home'));
+
+function render(){
+  const V=document.getElementById('view');
+  if(view==='home') renderHome(V);
+  else if(view==='settings') renderSettings(V);
+  else renderEdit(V);
+}
+
+/* =============== 一覧 =============== */
+function renderHome(V){
+  document.getElementById('hdSub').textContent='配車表メーカー　—　配車の一覧';
+  const list=[...R].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.updatedAt-a.updatedAt);
+  const noSetting = !S.cars.length || !S.members.length;
+  let h='';
+  if(noSetting){
+    h+=`<div class="card"><b>はじめに設定をしてください</b><div class="muted" style="margin:4px 0 10px">「⚙️設定」で <b>車</b>${S.cars.length?'（登録済み）':'（未登録）'} と <b>メンバー</b>${S.members.length?'（登録済み）':'（未登録）'} の両方を登録すると、配車を組めるようになります。</div>
+        <button class="btn wide" onclick="go('settings')">⚙️ 設定を開く</button></div>`;
+  }else{
+    h+=`<div class="row" style="margin-bottom:12px">
+          <button class="btn grow" onclick="createNew(false)">＋ 新しい配車</button>
+          ${R.length?`<button class="btn sub grow" onclick="pickCopy()">過去からコピー</button>`:''}
+        </div>`;
+  }
+  if(!list.length){ h+=`<div class="empty">まだ配車はありません。</div>`; }
+  list.forEach(r=>{
+    const cars=S.cars.filter(c=>r.cars[c.id]?.use);
+    const riders=cars.reduce((n,c)=>n+r.cars[c.id].riders.length,0);
+    const attending=S.members.filter(m=>!r.absent.includes(m.id)).length;
+    const left=Math.max(0,attending-riders);
+    h+=`<button class="rec" onclick="go('edit','${r.id}')">
+          <div class="d">${esc(fmtDate(r.date))}${r.trip?`<span class="pill">${esc(r.trip)}</span>`:''}</div>
+          <div class="t">${esc(r.title)||'（タイトル未入力）'}</div>
+          ${(r.meetTime||r.meetPlace||r.dest)?`<div class="m">${[r.meetTime?'集合 '+r.meetTime:'',r.meetPlace,r.dest?'→ '+r.dest:''].filter(Boolean).map(esc).join('　')}</div>`:''}
+          <div class="m num">車 ${cars.length}台 ／ 乗車 ${riders}人${left?` ／ <span style="color:var(--alert)">未割当 ${left}人</span>`:' ／ 全員割当済み'}</div>
+        </button>`;
+  });
+  V.innerHTML=h;
+}
+function createNew(copy,id){
+  const base = copy ? R.find(x=>x.id===id) : null;
+  const r=newRecord(base); R.push(r); saveR(); go('edit',r.id);
+  if(copy) toast('コピーしました（日付・便を直してください）');
+}
+function pickCopy(){
+  const list=[...R].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.updatedAt-a.updatedAt);
+  modal('コピー元の配車を選ぶ', list.map(r=>{ const n=S.cars.filter(c=>r.cars[c.id]?.use).length;
+    return `<button class="opt" onclick="createNew(true,'${r.id}');closeModal()"><span>${esc(r.title)||'（タイトル未入力）'}<br><span class="r">${esc(fmtDate(r.date))}${r.trip?' '+esc(r.trip):''}</span></span><span class="r num">車 ${n}台</span></button>`; }).join(''));
+}
+
+/* =============== 配車を組む =============== */
+function renderEdit(V){
+  const r=cur(); if(!r){ go('home'); return; }
+  document.getElementById('hdSub').textContent = (fmtDate(r.date)||'')+(r.trip?' '+r.trip:'')+'　'+(r.title||'');
+  const attending=S.members.filter(m=>!r.absent.includes(m.id));
+  const useCars=S.cars.filter(c=>carOf(r,c).use);
+  let seatTotal=0, riderTotal=0;
+  useCars.forEach(c=>{ const d=carOf(r,c); seatTotal+=memberSeats(c,d); riderTotal+=d.riders.length; });
+  const assigned=new Set(useCars.flatMap(c=>carOf(r,c).riders));
+  const unassigned=attending.filter(m=>!assigned.has(m.id));
+  const absent=S.members.filter(m=>r.absent.includes(m.id));
+
+  let h=`<div class="card">
+    <div class="field"><label>試合・イベント名</label><input type="text" value="${esc(r.title)}" placeholder="例：春季大会 2回戦" oninput="upd('title',this.value)"></div>
+    <div class="grid2">
+      <div class="field"><label>日付</label><input type="date" value="${esc(r.date)}" onchange="upd('date',this.value)"></div>
+      <div class="field"><label>便（行き・帰りなど）</label><input type="text" value="${esc(r.trip)}" placeholder="例：行き" list="tripList" oninput="upd('trip',this.value)"><datalist id="tripList"><option value="行き"><option value="帰り"><option value="往復"></datalist></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>集合時間</label><input type="time" value="${esc(r.meetTime)}" onchange="upd('meetTime',this.value)"></div>
+      <div class="field"><label>出発時間</label><input type="time" value="${esc(r.depTime)}" onchange="upd('depTime',this.value)"></div>
+    </div>
+    <div class="field"><label>集合場所</label><input type="text" value="${esc(r.meetPlace)}" placeholder="例：〇〇コート駐車場" oninput="upd('meetPlace',this.value)"></div>
+    <div class="field"><label>行き先</label><input type="text" value="${esc(r.dest)}" placeholder="例：△△総合運動公園" oninput="upd('dest',this.value)"></div>
+    <div class="field" style="margin:0"><label>メモ（連絡事項）</label><textarea rows="2" placeholder="例：帰りは現地解散" oninput="upd('memo',this.value)">${esc(r.memo)}</textarea></div>
+  </div>
+
+  <div class="status num">
+    <div><b>${attending.length}</b>人 乗る</div>
+    <div class="${seatTotal<attending.length?'bad':''}"><b>${seatTotal}</b>席</div>
+    <div class="${unassigned.length?'bad':''}"><b>${unassigned.length}</b>人 未割当</div>
+  </div>`;
+
+  /* 車 */
+  h+=`<div class="sec-h"><h2>車　<span class="muted" style="letter-spacing:0">出す車をオンにして席を埋める</span></h2></div>`;
+  S.cars.forEach(c=>{
+    const d=carOf(r,c);
+    h+=`<div class="card car">
+      <div class="car-head">
+        <button class="sw ${d.use?'on':''}" onclick="toggleUse('${c.id}')" aria-label="出す"></button>
+        <div class="grow"><div class="name">${esc(c.name)}</div><div class="cap num">定員 ${c.cap}人</div></div>
+        ${d.use?`<div class="muted num">メンバー席 <b>${memberSeats(c,d)}</b></div>`:`<div class="muted">出さない</div>`}
+      </div>`;
+    if(d.use){
+      const ms=memberSeats(c,d);
+      let seats=`<div class="seat dr"><span>${esc(d.driver||'Dr')}</span><small>運転</small></div>`;
+      for(let i=0;i<(d.cargo|0);i++) seats+=`<div class="seat cargo">荷物</div>`;
+      for(let i=0;i<(d.extra|0);i++) seats+=`<div class="seat extra">メンバー外</div>`;
+      d.riders.forEach((id,i)=>{ seats+=`<div class="seat ${i<ms?'on':'over'}" onclick="unassign('${c.id}','${id}')" title="タップで外す">${esc(mName(id))}</div>`; });
+      for(let i=d.riders.length;i<ms;i++) seats+=`<div class="seat open" onclick="pickMember('${c.id}')">＋</div>`;
+      h+=`<div class="car-body">
+        <div class="ctrl">
+          <div class="field"><label>運転者</label><input type="text" value="${esc(d.driver)}" placeholder="例：山田（父）" oninput="updCar('${c.id}','driver',this.value)"></div>
+          <div class="field"><label>荷物（席）</label><div class="step"><button onclick="stepCar('${c.id}','cargo',-1)">−</button><span class="num">${d.cargo|0}</span><button onclick="stepCar('${c.id}','cargo',1)">＋</button></div></div>
+          <div class="field"><label>メンバー外（席）</label><div class="step"><button onclick="stepCar('${c.id}','extra',-1)">−</button><span class="num">${d.extra|0}</span><button onclick="stepCar('${c.id}','extra',1)">＋</button></div></div>
+        </div>
+        <div class="seats">${seats}</div>
+        <div class="field" style="margin:8px 0 0"><label>この車の備考（この試合だけ）</label><input type="text" value="${esc(d.note||'')}" placeholder="例：帰りは寄り道あり／チャイルドシート1つ" oninput="updCar('${c.id}','note',this.value)"></div>
+        ${d.riders.length>ms?`<div class="seat-note" style="color:var(--alert)">席が ${d.riders.length-ms} 人分足りません。タップして外すか、荷物・メンバー外を減らしてください。</div>`:`<div class="seat-note">乗っている人をタップすると外せます。</div>`}
+      </div>`;
+    }
+    h+=`</div>`;
+  });
+  if(!S.cars.length) h+=`<div class="empty">車が登録されていません。設定で追加してください。</div>`;
+
+  /* メンバー */
+  h+=`<div class="sec-h"><h2>未割当のメンバー　<span class="muted" style="letter-spacing:0">タップして車を選ぶ</span></h2></div>
+      <div class="card">${unassigned.length?`<div class="chips">${unassigned.map(m=>`<button class="chip" onclick="pickCar('${m.id}')">${esc(m.name)}${m.grade?`<span class="g">${esc(m.grade)}</span>`:''}</button>`).join('')}</div>`:`<div class="muted" style="text-align:center">全員の席が決まりました 🎉</div>`}</div>`;
+  h+=`<div class="sec-h"><h2>欠席</h2></div>
+      <div class="card">${absent.length?`<div class="chips">${absent.map(m=>`<button class="chip abs" onclick="setAbsent('${m.id}',false)">${esc(m.name)}</button>`).join('')}</div><div class="muted" style="margin-top:6px">タップで戻す</div>`:`<div class="muted">欠席はいません（未割当のメンバーをタップ→「欠席にする」）</div>`}</div>`;
+
+  /* 出力・操作 */
+  h+=`<div class="sec-h"><h2>出力</h2></div>
+      <div class="row" style="margin-bottom:8px">
+        <button class="btn grow" onclick="showLine()">💬 LINE用テキスト</button>
+        <button class="btn sub grow" onclick="doPrint()">🖨 印刷・PDF</button>
+      </div>
+      <div class="row" style="margin-bottom:30px">
+        <button class="btn ghost grow" onclick="dupRecord()">📋 この配車を複製</button>
+        <button class="btn danger grow" onclick="delRecord()">🗑 削除</button>
+      </div>`;
+  V.innerHTML=h;
+}
+function touch(r){ r.updatedAt=Date.now(); saveR(); }
+function upd(k,v){ const r=cur(); r[k]=v; touch(r); if(k==='date'||k==='trip'||k==='title') document.getElementById('hdSub').textContent=(fmtDate(r.date)||'')+(r.trip?' '+r.trip:'')+'　'+(r.title||''); }
+function updCar(cid,k,v){ const r=cur(); const c=S.cars.find(c=>c.id===cid); carOf(r,c)[k]=v; touch(r);
+  if(k==='driver'){ const el=document.querySelector(`.seat.dr span`); } /* 再描画は入力終了後でよいため省略 */ }
+function stepCar(cid,k,dlt){ const r=cur(); const c=S.cars.find(c=>c.id===cid); const d=carOf(r,c);
+  d[k]=Math.max(0,Math.min((c.cap|0)-1,(d[k]|0)+dlt)); touch(r); render(); }
+function toggleUse(cid){ const r=cur(); const c=S.cars.find(c=>c.id===cid); const d=carOf(r,c);
+  if(d.use && d.riders.length && !confirm(`${c.name}を出さない車にすると、乗っている${d.riders.length}人は未割当に戻ります。よろしいですか？`)) return;
+  d.use=!d.use; if(!d.use) d.riders=[]; touch(r); render(); }
+function assign(cid,mid){ const r=cur(); S.cars.forEach(c=>{ const d=carOf(r,c); d.riders=d.riders.filter(x=>x!==mid); });
+  const c=S.cars.find(c=>c.id===cid); carOf(r,c).riders.push(mid); r.absent=r.absent.filter(x=>x!==mid); touch(r); render(); }
+function unassign(cid,mid){ const r=cur(); const c=S.cars.find(c=>c.id===cid); const d=carOf(r,c); d.riders=d.riders.filter(x=>x!==mid); touch(r); render(); }
+function setAbsent(mid,on){ const r=cur(); r.absent=r.absent.filter(x=>x!==mid); if(on){ r.absent.push(mid); S.cars.forEach(c=>{ const d=carOf(r,c); d.riders=d.riders.filter(x=>x!==mid); }); } touch(r); render(); }
+
+/* 席から人を選ぶ */
+function pickMember(cid){
+  const r=cur(); const c=S.cars.find(c=>c.id===cid);
+  const assigned=new Set(S.cars.flatMap(x=>carOf(r,x).riders));
+  const list=S.members.filter(m=>!r.absent.includes(m.id)&&!assigned.has(m.id));
+  if(!list.length){ toast('未割当のメンバーはいません'); return; }
+  modal(`${esc(c.name)} に乗せる人`, list.map(m=>`<button class="opt" onclick="assign('${cid}','${m.id}');closeModal()">${esc(m.name)}<span class="r">${esc(m.grade||'')}</span></button>`).join(''));
+}
+/* 人から車を選ぶ */
+function pickCar(mid){
+  const r=cur(); const m=S.members.find(m=>m.id===mid);
+  const cars=S.cars.filter(c=>carOf(r,c).use);
+  let h=cars.map(c=>{ const d=carOf(r,c); const free=memberSeats(c,d)-d.riders.length;
+    return `<button class="opt ${free<=0?'dis':''}" onclick="assign('${c.id}','${mid}');closeModal()">${esc(c.name)}<span class="r num">${free>0?`空き ${free}席`:'満席（乗せると超過）'}</span></button>`; }).join('');
+  if(!cars.length) h+=`<div class="muted" style="padding:10px">出す車がまだありません。車をオンにしてください。</div>`;
+  h+=`<button class="opt warnopt" onclick="setAbsent('${mid}',true);closeModal()">欠席にする</button>`;
+  modal(`${esc(m.name)} を乗せる車`, h);
+}
+function modal(title,inner,extra){
+  closeModal();
+  const ov=document.createElement('div'); ov.className='ov'; ov.id='ov';
+  ov.innerHTML=`<div class="box"><h3>${title}</h3>${inner}${extra||''}<div style="margin-top:12px"><button class="btn ghost wide" onclick="closeModal()">閉じる</button></div></div>`;
+  ov.addEventListener('click',e=>{ if(e.target===ov) closeModal(); });
+  document.body.appendChild(ov);
+}
+function closeModal(){ const o=document.getElementById('ov'); if(o) o.remove(); }
+
+function dupRecord(){ const r=cur(); const n=newRecord(r); R.push(n); saveR(); go('edit',n.id); toast('複製しました（便を入力してください）'); }
+function delRecord(){ const r=cur(); if(!confirm('この配車を削除しますか？')) return; R=R.filter(x=>x.id!==r.id); saveR(); go('home'); }
+
+/* =============== 出力 =============== */
+function headLines(r){
+  const L=[];
+  L.push(`【${r.title||'配車'}】`);
+  L.push(`${fmtDate(r.date)}${r.trip?'　'+r.trip:''}`);
+  if(r.meetTime||r.meetPlace) L.push(`集合：${[r.meetTime,r.meetPlace].filter(Boolean).join('　')}`);
+  if(r.depTime) L.push(`出発：${r.depTime}`);
+  if(r.dest) L.push(`行き先：${r.dest}`);
+  return L;
+}
+function lineText(){
+  const r=cur(); const L=headLines(r); L.push('');
+  const cars=S.cars.filter(c=>carOf(r,c).use);
+  cars.forEach(c=>{ const d=carOf(r,c);
+    L.push(`■${c.name}${d.driver?`（Dr ${d.driver}）`:''}`);
+    L.push(`　${d.riders.length?d.riders.map(mName).join('・'):'（なし）'}`);
+    const n=[d.cargo?`荷物${d.cargo}席`:'', d.extra?`メンバー外${d.extra}席`:'', d.note||''].filter(Boolean).join('・'); if(n) L.push(`　※${n}`);
+  });
+  const assigned=new Set(cars.flatMap(c=>carOf(r,c).riders));
+  const un=S.members.filter(m=>!r.absent.includes(m.id)&&!assigned.has(m.id));
+  const ab=S.members.filter(m=>r.absent.includes(m.id));
+  if(un.length){ L.push(''); L.push(`未割当：${un.map(m=>m.name).join('・')}`); }
+  if(ab.length){ L.push(`欠席：${ab.map(m=>m.name).join('・')}`); }
+  if(r.memo){ L.push(''); L.push(r.memo); }
+  return L.join('\n');
+}
+function showLine(){
+  const t=lineText();
+  modal('LINE用テキスト', `<textarea class="out" id="lineOut" readonly>${esc(t)}</textarea>`, `<div style="margin-top:8px"><button class="btn wide" onclick="copyLine()">コピーする</button></div>`);
+}
+async function copyLine(){ const t=document.getElementById('lineOut').value;
+  try{ await navigator.clipboard.writeText(t); toast('コピーしました'); }catch(e){ document.getElementById('lineOut').select(); document.execCommand('copy'); toast('コピーしました'); } }
+function doPrint(){
+  const r=cur(); const cars=S.cars.filter(c=>carOf(r,c).use);
+  const H=headLines(r);
+  let h=`<h1>${esc(H[0].replace(/[【】]/g,''))}　<span style="font-weight:400;font-size:14px">配車表</span></h1><div class="meta">${S.club?`${esc(S.club)}<br>`:''}${H.slice(1).map(esc).join('<br>')}</div>`;
+  h+=`<table><tr><th>車（運転者）</th><th>乗る人</th><th style="width:150px">備考</th></tr>`;
+  cars.forEach(c=>{ const d=carOf(r,c);
+    h+=`<tr><td><b>${esc(c.name)}</b><br>${esc(d.driver||'')}</td><td>${d.riders.map(id=>esc(mName(id))).join('　')||'—'}</td><td>${[d.cargo?`荷物 ${d.cargo}席`:'',d.extra?`メンバー外 ${d.extra}席`:'',esc(d.note||'')].filter(Boolean).join('<br>')}</td></tr>`; });
+  h+=`</table>`;
+  const assigned=new Set(cars.flatMap(c=>carOf(r,c).riders));
+  const un=S.members.filter(m=>!r.absent.includes(m.id)&&!assigned.has(m.id));
+  const ab=S.members.filter(m=>r.absent.includes(m.id));
+  if(un.length) h+=`<div>未割当：${un.map(m=>esc(m.name)).join('・')}</div>`;
+  if(ab.length) h+=`<div>欠席：${ab.map(m=>esc(m.name)).join('・')}</div>`;
+  if(r.memo) h+=`<div style="margin-top:8px;white-space:pre-wrap">${esc(r.memo)}</div>`;
+  h+=`<div class="foot">作成 ${new Date().toLocaleString('ja-JP')}</div>`;
+  document.getElementById('print').innerHTML=h;
+  window.print();
+}
+
+/* =============== 設定 =============== */
+function renderSettings(V){
+  document.getElementById('hdSub').textContent='車とメンバーの登録';
+  let h=`<div class="card"><div class="field" style="margin:0"><label>クラブ名（見出しに表示）</label><input type="text" value="${esc(S.club)}" placeholder="例：〇〇クラブ" oninput="S.club=this.value;saveS()"></div></div>`;
+
+  h+=`<div class="sec-h"><h2>車（家庭ごと）</h2><button class="btn sm" onclick="addCar()">＋ 追加</button></div><div class="card">`;
+  if(!S.cars.length) h+=`<div class="muted">まだありません。「＋追加」で登録。</div>`;
+  S.cars.forEach((c,i)=>{ h+=`<div class="li" style="flex-direction:column;align-items:stretch;gap:6px">
+      <div class="row"><div class="field grow" style="margin:0"><label>車名</label><input type="text" value="${esc(c.name)}" placeholder="例：山田家 VOXY" oninput="S.cars[${i}].name=this.value;saveS()"></div>
+        <button class="ico" onclick="mv('cars',${i},-1)" title="上へ">▲</button><button class="ico del" onclick="delItem('cars',${i})" title="削除">✕</button></div>
+      <div class="grid2">
+        <div class="field" style="margin:0"><label>定員（運転席を含む）</label><input type="number" inputmode="numeric" min="2" max="14" value="${c.cap}" oninput="S.cars[${i}].cap=Math.max(2,+this.value||2);saveS()"></div>
+        <div class="field" style="margin:0"><label>普段の運転者</label><input type="text" value="${esc(c.driver)}" placeholder="例：山田（父）" oninput="S.cars[${i}].driver=this.value;saveS()"></div>
+      </div></div>`; });
+  h+=`<div class="muted" style="margin-top:8px">運転者は配車ごとに変えられます。</div></div>`;
+
+  h+=`<div class="sec-h"><h2>メンバー</h2><div class="row"><button class="btn sm sub" onclick="bulkMembers()">まとめて追加</button><button class="btn sm" onclick="addMember()">＋ 追加</button></div></div><div class="card">`;
+  if(!S.members.length) h+=`<div class="muted">まだありません。改行区切りで「まとめて追加」が早いです。</div>`;
+  S.members.forEach((m,i)=>{ h+=`<div class="li">
+      <input type="text" class="grow" value="${esc(m.name)}" placeholder="名前" oninput="S.members[${i}].name=this.value;saveS()">
+      <input type="text" style="width:70px" value="${esc(m.grade||'')}" placeholder="学年" oninput="S.members[${i}].grade=this.value;saveS()">
+      <button class="ico" onclick="mv('members',${i},-1)">▲</button><button class="ico del" onclick="delItem('members',${i})">✕</button></div>`; });
+  h+=`<div class="muted" style="margin-top:8px">並び順は▲で上へ。学年は任意（メモ用）。</div></div>`;
+
+  h+=`<div class="sec-h"><h2>バックアップ</h2></div><div class="card">
+    <div class="muted" style="margin-bottom:10px">データはこの端末のブラウザ内に保存されます。機種変更や別の端末で使うときは、書き出したファイルを読み込んでください。</div>
+    <div class="row"><button class="btn sub grow" onclick="exportJson()">⬇ 書き出す</button><label class="btn ghost grow" style="cursor:pointer">⬆ 読み込む<input type="file" accept=".json" style="display:none" onchange="importJson(this.files[0])"></label></div>
+  </div>
+  <div class="muted" style="text-align:center;margin-top:20px;font-size:12px">RidePlan　by <a href="https://kreatio-works.github.io/" target="_blank" rel="noopener" style="color:var(--field);font-weight:700">KREATIO WORKS</a></div>`;
+  V.innerHTML=h;
+}
+function addCar(){ S.cars.push({id:uid(),name:'',cap:7,driver:''}); saveS(); render(); setTimeout(()=>{ const ins=document.querySelectorAll('.li input[type=text]'); },0); }
+function addMember(){ S.members.push({id:uid(),name:'',grade:''}); saveS(); render(); }
+function bulkMembers(){
+  modal('メンバーをまとめて追加', `<div class="muted" style="margin-bottom:6px">1行に1人。「名前 学年」のように空白で区切ると学年も入ります。</div><textarea class="out" id="bulk" placeholder="佐藤 中2&#10;田中&#10;鈴木 中1"></textarea>`,
+    `<div style="margin-top:8px"><button class="btn wide" onclick="applyBulk()">追加する</button></div>`);
+}
+function applyBulk(){ const t=document.getElementById('bulk').value; let n=0;
+  t.split(/\n/).map(s=>s.trim()).filter(Boolean).forEach(s=>{ const [name,...g]=s.split(/[\s　]+/); S.members.push({id:uid(),name,grade:g.join(' ')}); n++; });
+  saveS(); closeModal(); render(); toast(`${n}人追加しました`); }
+function mv(list,i,d){ const a=S[list]; const j=i+d; if(j<0||j>=a.length) return; [a[i],a[j]]=[a[j],a[i]]; saveS(); render(); }
+function delItem(list,i){ const a=S[list]; const nm=a[i].name||'（無名）'; if(!confirm(`${nm} を削除しますか？`)) return; a.splice(i,1); saveS(); render(); }
+function exportJson(){ const blob=new Blob([JSON.stringify({settings:S,records:R},null,1)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`rideplan_backup_${new Date().toISOString().slice(0,10)}.json`; a.click(); }
+function importJson(f){ if(!f) return; const rd=new FileReader(); rd.onload=()=>{ try{ const j=JSON.parse(rd.result);
+  if(!j.settings||!j.records) throw 0; if(!confirm('今のデータを読み込んだ内容で置き換えます。よろしいですか？')) return;
+  S=j.settings; R=j.records; saveS(); saveR(); render(); toast('読み込みました'); }catch(e){ alert('読み込めませんでした。書き出したファイルを選んでください。'); } }; rd.readAsText(f); }
+
+function showHelp(){
+  modal('RidePlan の使い方', `<div class="help">
+    <h4>このアプリでできること</h4>
+    <p>係の人が一人で、メンバーを車に割り当てて配車表を作るためのアプリです。ログイン不要・登録不要で、データはこの端末のブラウザ内だけに保存されます。</p>
+
+    <h4>1．最初に「⚙️設定」</h4>
+    <ul>
+      <li>クラブ名（見出しと配車表に表示）</li>
+      <li>車：家庭ごとに、車名・定員（運転席を含む）・普段の運転者を登録</li>
+      <li>メンバー：「まとめて追加」に1行1人で貼り付けると早いです</li>
+    </ul>
+
+    <h4>2．「🚗配車」で組む</h4>
+    <ul>
+      <li>「＋新しい配車」→ 試合名・日付・便（行き／帰り／往復）・集合時間・集合場所・出発時間・行き先を入力</li>
+      <li>その日に出す車のスイッチをオン。運転者・荷物席・メンバー外席（家族など）は試合ごとに変えられます</li>
+      <li>空席の「＋」をタップして人を選ぶか、下の未割当の名前をタップして車を選びます</li>
+      <li>乗っている人をタップすると外せます。来ない人は名前をタップ→「欠席にする」</li>
+      <li>上の集計バーで「乗る人」「席」「未割当」がひと目で分かります</li>
+    </ul>
+
+    <h4>3．出力して共有</h4>
+    <ul>
+      <li>💬 LINE用テキスト：コピーしてそのままグループLINEへ</li>
+      <li>🖨 印刷・PDF：A4縦の配車表。スマホでは共有メニューから「PDFで保存」</li>
+    </ul>
+
+    <h4>便利な使い方</h4>
+    <ul>
+      <li>「この配車を複製」→ 行きを作ってから帰り用にコピー</li>
+      <li>「過去からコピー」→ 以前の配車をもとに新しい試合を作成</li>
+      <li>入力は自動で保存されます。保存ボタンはありません</li>
+    </ul>
+
+    <h4>注意</h4>
+    <ul>
+      <li>データは端末のブラウザ内だけにあります。機種変更や別端末で使う前に「設定 → バックアップ → 書き出す」でファイルを保存し、新しい端末で読み込んでください</li>
+      <li>ブラウザの履歴・サイトデータを消すとデータも消えます</li>
+    </ul>
+
+    <h4>ホーム画面に追加（アプリのように使う）</h4>
+    <ul>
+      <li>iPhone：Safariで開き、下の共有ボタン（□↑）→「ホーム画面に追加」</li>
+      <li>Android：Chromeで開き、右上の「⋮」→「ホーム画面に追加」（または「アプリをインストール」）</li>
+      <li>追加後もデータは同じブラウザに保存されます。ブラウザで開いた場合とホーム画面から開いた場合で、別のデータになることがあるので、どちらか一方で使ってください</li>
+    </ul>
+
+    <p style="margin-top:14px;text-align:center"><b>RidePlan</b> — チームの配車表メーカー<br><a href="https://kreatio-works.github.io/" target="_blank" rel="noopener" style="color:var(--field);font-weight:700">KREATIO WORKS</a><br><span class="muted">チーム専用のカスタム版のご相談もこちらから</span></p>
+  </div>`);
+}
+go('home');
+if(!localStorage.getItem('rideplan_seen')){ localStorage.setItem('rideplan_seen','1'); setTimeout(showHelp,300); }
+</script>
+</body>
+</html>
