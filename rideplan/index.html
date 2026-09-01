@@ -65,6 +65,8 @@ main{max-width:720px;margin:0 auto;padding:14px 12px calc(40px + env(safe-area-i
 .field input,.field select,.field textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}
 .field input:focus,.field select:focus,.field textarea:focus{outline:2px solid var(--field);outline-offset:1px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}
+.grid2>*,.grid3>*{min-width:0}
+.field input[type=time],.field input[type=date]{-webkit-appearance:none;appearance:none;display:block;min-width:0;-webkit-min-logical-width:0;max-width:100%;min-height:41px;text-align:left}
 .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 8px}
 .muted{color:var(--mute);font-size:13px}
 .empty{color:var(--mute);text-align:center;padding:22px 8px;font-size:14px}
@@ -123,6 +125,11 @@ details.past .body .rec{margin-top:8px}
 .exp summary::-webkit-details-marker{display:none}
 .exp .body{padding:0 0 10px}
 .exp .field input{text-align:right}
+
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+.seg button{flex:1;padding:9px 0;font-size:14px;font-weight:700;color:var(--mute);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--field);color:#fff}
 
 /* ---- member chips ---- */
 .chips{display:flex;flex-wrap:wrap;gap:8px}
@@ -197,7 +204,7 @@ const KEY_S='rideplan_settings_v1', KEY_R='rideplan_records_v1';
 let S = load(KEY_S) || {club:'', cars:[], members:[]};
 let R = load(KEY_R) || [];
 let view='home', curId=null; const expOpen={}, pastOpen={};
-S.exp = S.exp || {gasMode:'actual', gasFixed:0, gasRate:0};
+S.exp = Object.assign({gasMode:'actual', gasFixed:0, gasRate:0, fuelPrice:0, extraName:'補助金', extraMode:'none', extraFixed:0}, S.exp||{});
 
 function load(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } }
 function saveS(){ localStorage.setItem(KEY_S, JSON.stringify(S)); }
@@ -207,8 +214,14 @@ function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&
 function cur(){ return R.find(r=>r.id===curId); }
 function carOf(rec,c){ if(!rec.cars[c.id]) rec.cars[c.id]={use:false,driver:c.driver||'',cargo:0,extra:0,riders:[]}; return rec.cars[c.id]; }
 function memberSeats(c,d){ return Math.max(0, (c.cap|0)-1-(d.cargo|0)-(d.extra|0)); }
-function gasAmount(d){ const e=S.exp; if(e.gasMode==='actual') return +d.gas||0; if(e.gasMode==='fixed') return +e.gasFixed||0; if(e.gasMode==='km') return Math.round((+d.km||0)*(+e.gasRate||0)); return 0; }
-function expTotal(d){ return (+d.toll||0)+(+d.parking||0)+gasAmount(d); }
+function gasAmount(d,c){ const e=S.exp;
+  if(e.gasMode==='actual') return +d.gas||0;
+  if(e.gasMode==='fixed') return +e.gasFixed||0;
+  if(e.gasMode==='km') return Math.round((+d.km||0)*(+e.gasRate||0));
+  if(e.gasMode==='fuel'){ const mpg=+(c&&c.mpg)||0; return mpg?Math.round((+d.km||0)/mpg*(+e.fuelPrice||0)):0; }
+  return 0; }
+function extraAmount(d){ const e=S.exp; if(e.extraMode==='input') return +d.extra||0; if(e.extraMode==='fixed') return +e.extraFixed||0; return 0; }
+function expTotal(d,c){ return (+d.toll||0)+(+d.parking||0)+gasAmount(d,c)+extraAmount(d); }
 function yen(n){ return '¥'+(n|0).toLocaleString('ja-JP'); }
 function mName(id){ const m=S.members.find(m=>m.id===id); return m?m.name:'(削除済)'; }
 function fmtDate(s){ if(!s) return ''; const d=new Date(s+'T00:00:00'); if(isNaN(d)) return s;
@@ -268,7 +281,7 @@ function renderHome(V){
     const attending=S.members.filter(m=>!r.absent.includes(m.id)).length;
     const left=Math.max(0,attending-riders);
     return `<button class="rec" onclick="go('edit','${r.id}')">
-          <div class="d">${esc(fmtDate(r.date))}${r.trip?`<span class="pill">${esc(r.trip)}</span>`:''}</div>
+          <div class="d">${esc(fmtDate(r.date))}${tripLabel(r)?`<span class="pill">${esc(tripLabel(r))}</span>`:''}</div>
           <div class="t">${esc(r.title)||'（タイトル未入力）'}</div>
           ${(r.meetTime||r.meetPlace||r.dest)?`<div class="m">${[r.meetTime?'集合 '+r.meetTime:'',r.meetPlace,r.dest?'→ '+r.dest:''].filter(Boolean).map(esc).join('　')}</div>`:''}
           <div class="m num">車 ${cars.length}台 ／ 乗車 ${riders}人${left?` ／ <span style="color:var(--alert)">未割当 ${left}人</span>`:' ／ 全員割当済み'}</div>
@@ -293,13 +306,13 @@ function createNew(copy,id){
 function pickCopy(){
   const list=[...R].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.updatedAt-a.updatedAt);
   modal('コピー元の配車を選ぶ', list.map(r=>{ const n=S.cars.filter(c=>r.cars[c.id]?.use).length;
-    return `<button class="opt" onclick="createNew(true,'${r.id}');closeModal()"><span>${esc(r.title)||'（タイトル未入力）'}<br><span class="r">${esc(fmtDate(r.date))}${r.trip?' '+esc(r.trip):''}</span></span><span class="r num">車 ${n}台</span></button>`; }).join(''));
+    return `<button class="opt" onclick="createNew(true,'${r.id}');closeModal()"><span>${esc(r.title)||'（タイトル未入力）'}<br><span class="r">${esc(fmtDate(r.date))}${tripLabel(r)?' '+esc(tripLabel(r)):''}</span></span><span class="r num">車 ${n}台</span></button>`; }).join(''));
 }
 
 /* =============== 配車を組む =============== */
 function renderEdit(V){
   const r=cur(); if(!r){ go('home'); return; }
-  document.getElementById('hdSub').textContent = (fmtDate(r.date)||'')+(r.trip?' '+r.trip:'')+'　'+(r.title||'');
+  document.getElementById('hdSub').textContent = (fmtDate(r.date)||'')+(tripLabel(r)?' '+tripLabel(r):'')+'　'+(r.title||'');
   const attending=S.members.filter(m=>!r.absent.includes(m.id));
   const useCars=S.cars.filter(c=>carOf(r,c).use);
   let seatTotal=0, riderTotal=0;
@@ -312,8 +325,9 @@ function renderEdit(V){
     <div class="field"><label>試合・イベント名</label><input type="text" value="${esc(r.title)}" placeholder="例：春季大会 2回戦" oninput="upd('title',this.value)"></div>
     <div class="grid2">
       <div class="field"><label>日付</label><input type="date" value="${esc(r.date)}" onchange="upd('date',this.value)"></div>
-      <div class="field"><label>便（行き・帰りなど）</label><input type="text" value="${esc(r.trip)}" placeholder="例：行き" list="tripList" oninput="upd('trip',this.value)"><datalist id="tripList"><option value="行き"><option value="帰り"><option value="往復"></datalist></div>
+      <div class="field"><label>便</label><div class="seg">${['行き','帰り','往復'].map(t=>`<button class="${r.trip===t?'on':''}" onclick="setTrip('${t}')">${t}</button>`).join('')}<button class="${(r.trip&&!['行き','帰り','往復'].includes(r.trip))?'on':''}" onclick="setTrip('other')">他</button></div></div>
     </div>
+    ${(r.trip&&!['行き','帰り','往復'].includes(r.trip))||r.trip==='（入力）'?`<div class="field"><label>便（自由入力）</label><input type="text" value="${esc(r.trip==='（入力）'?'':r.trip)}" placeholder="例：2日目 行き" oninput="upd('trip',this.value||'（入力）')"></div>`:''}
     <div class="grid2">
       <div class="field"><label>集合時間</label><input type="time" value="${esc(r.meetTime)}" onchange="upd('meetTime',this.value)"></div>
       <div class="field"><label>出発時間</label><input type="time" value="${esc(r.depTime)}" onchange="upd('depTime',this.value)"></div>
@@ -355,16 +369,19 @@ function renderEdit(V){
         <div class="seats">${seats}</div>
         <div class="field" style="margin:8px 0 0"><label>この車の備考（この試合だけ）</label><input type="text" value="${esc(d.note||'')}" placeholder="例：帰りは寄り道あり／チャイルドシート1つ" oninput="updCar('${c.id}','note',this.value)"></div>
         <details class="exp" ${expOpen[c.id]?'open':''} ontoggle="expOpen['${c.id}']=this.open">
-          <summary><span>💴 経費（精算用）</span><span class="num">${expTotal(d)?yen(expTotal(d)):'未入力'}</span></summary>
+          <summary><span>💴 経費（精算用）</span><span class="num">${expTotal(d,c)?yen(expTotal(d,c)):'未入力'}</span></summary>
           <div class="body">
             <div class="grid3">
               <div class="field"><label>高速代</label><input type="number" inputmode="numeric" min="0" value="${d.toll??''}" placeholder="0" onchange="updCar('${c.id}','toll',this.value);render()"></div>
               <div class="field"><label>駐車場代</label><input type="number" inputmode="numeric" min="0" value="${d.parking??''}" placeholder="0" onchange="updCar('${c.id}','parking',this.value);render()"></div>
               ${S.exp.gasMode==='actual'?`<div class="field"><label>ガソリン代</label><input type="number" inputmode="numeric" min="0" value="${d.gas??''}" placeholder="0" onchange="updCar('${c.id}','gas',this.value);render()"></div>`:
-                S.exp.gasMode==='km'?`<div class="field"><label>走行距離（km）</label><input type="number" inputmode="decimal" min="0" step="0.1" value="${d.km??''}" placeholder="0" onchange="updCar('${c.id}','km',this.value);render()"></div>`:
+                (S.exp.gasMode==='km'||S.exp.gasMode==='fuel')?`<div class="field"><label>走行距離（km）</label><input type="number" inputmode="decimal" min="0" step="0.1" value="${d.km??''}" placeholder="0" onchange="updCar('${c.id}','km',this.value);render()"></div>`:
                 S.exp.gasMode==='fixed'?`<div class="field"><label>ガソリン代（定額）</label><input type="text" value="${yen(S.exp.gasFixed)}" readonly style="background:var(--paper)"></div>`:`<div></div>`}
             </div>
-            ${S.exp.gasMode==='km'?`<div class="muted num" style="margin:-4px 0 8px">ガソリン代：${yen(gasAmount(d))}（${+d.km||0}km × ${+S.exp.gasRate||0}円）</div>`:''}
+            ${S.exp.gasMode==='km'?`<div class="muted num" style="margin:-4px 0 8px">ガソリン代：${yen(gasAmount(d,c))}（${+d.km||0}km × ${+S.exp.gasRate||0}円）</div>`:''}
+            ${S.exp.gasMode==='fuel'?(+c.mpg?`<div class="muted num" style="margin:-4px 0 8px">ガソリン代：${yen(gasAmount(d,c))}（${+d.km||0}km ÷ ${+c.mpg}km/L × ${+S.exp.fuelPrice||0}円/L）</div>`:`<div class="num" style="margin:-4px 0 8px;font-size:12px;color:var(--alert)">この車の燃費（km/L）が未設定です。設定の車の欄で入力してください</div>`):''}
+            ${S.exp.extraMode==='input'?`<div class="field"><label>${esc(S.exp.extraName||'補助金')}（マイナス可）</label><input type="number" inputmode="numeric" value="${d.extra??''}" placeholder="0" onchange="updCar('${c.id}','extra',this.value);render()"></div>`:
+              S.exp.extraMode==='fixed'?`<div class="field"><label>${esc(S.exp.extraName||'補助金')}（定額）</label><input type="text" value="${yen(S.exp.extraFixed)}" readonly style="background:var(--paper)"></div>`:''}
             <div class="field" style="margin:0"><label>精算メモ</label><input type="text" value="${esc(d.expNote||'')}" placeholder="例：領収書受領済み" oninput="updCar('${c.id}','expNote',this.value)"></div>
           </div>
         </details>
@@ -397,7 +414,8 @@ function renderEdit(V){
   V.innerHTML=h;
 }
 function touch(r){ r.updatedAt=Date.now(); saveR(); }
-function upd(k,v){ const r=cur(); r[k]=v; touch(r); if(k==='date'||k==='trip'||k==='title') document.getElementById('hdSub').textContent=(fmtDate(r.date)||'')+(r.trip?' '+r.trip:'')+'　'+(r.title||''); }
+function upd(k,v){ const r=cur(); r[k]=v; touch(r); if(k==='date'||k==='trip'||k==='title') document.getElementById('hdSub').textContent=(fmtDate(r.date)||'')+(tripLabel(r)?' '+tripLabel(r):'')+'　'+(r.title||''); }
+function setTrip(t){ const r=cur(); if(t==='other'){ r.trip='（入力）'; } else { r.trip=(r.trip===t)?'':t; } touch(r); render(); }
 function updCar(cid,k,v){ const r=cur(); const c=S.cars.find(c=>c.id===cid); carOf(r,c)[k]=v; touch(r);
   if(k==='driver'){ const el=document.querySelector(`.seat.dr span`); } /* 再描画は入力終了後でよいため省略 */ }
 function stepCar(cid,k,dlt){ const r=cur(); const c=S.cars.find(c=>c.id===cid); const d=carOf(r,c);
@@ -441,10 +459,11 @@ function dupRecord(){ const r=cur(); const n=newRecord(r); R.push(n); saveR(); g
 function delRecord(){ const r=cur(); if(!confirm('この配車を削除しますか？')) return; R=R.filter(x=>x.id!==r.id); saveR(); go('home'); }
 
 /* =============== 出力 =============== */
+function tripLabel(r){ return (r.trip&&r.trip!=='（入力）')?r.trip:''; }
 function headLines(r){
   const L=[];
   L.push(`【${r.title||'配車'}】`);
-  L.push(`${fmtDate(r.date)}${r.trip?'　'+r.trip:''}`);
+  L.push(`${fmtDate(r.date)}${tripLabel(r)?'　'+tripLabel(r):''}`);
   if(r.meetTime||r.meetPlace) L.push(`集合：${[r.meetTime,r.meetPlace].filter(Boolean).join('　')}`);
   if(r.depTime) L.push(`出発：${r.depTime}`);
   if(r.dest) L.push(`行き先：${r.dest}`);
@@ -500,12 +519,12 @@ function expRows(recs){
   const rows=[];
   [...recs].sort((a,b)=>(a.date||'').localeCompare(b.date||'')||a.updatedAt-b.updatedAt).forEach(r=>{
     S.cars.forEach(c=>{ const d=r.cars[c.id]; if(!d||!d.use) return;
-      rows.push({date:r.date, trip:r.trip||'', title:r.title||'', car:c.name, driver:(d.driver||'').trim()||'（未入力）',
-        toll:+d.toll||0, parking:+d.parking||0, gas:+d.gas||0, km:+d.km||0, note:d.expNote||''}); });
+      rows.push({date:r.date, trip:tripLabel(r), title:r.title||'', car:c.name, driver:(d.driver||'').trim()||'（未入力）',
+        toll:+d.toll||0, parking:+d.parking||0, gas:+d.gas||0, km:+d.km||0, mpg:+c.mpg||0, extra:+d.extra||0, note:d.expNote||''}); });
   });
   return rows;
 }
-function exportExcelOne(){ const r=cur(); exportExcel([r], `${fmtDate(r.date)}${r.trip?'_'+r.trip:''}${r.title?'_'+r.title:''}`); }
+function exportExcelOne(){ const r=cur(); exportExcel([r], `${fmtDate(r.date)}${tripLabel(r)?'_'+tripLabel(r):''}${r.title?'_'+r.title:''}`); }
 function pickMonthExcel(){
   const months=[...new Set(R.map(r=>(r.date||'').slice(0,7)).filter(Boolean))].sort().reverse();
   modal('月を選ぶ（経費Excel）', months.map(m=>{ const n=R.filter(r=>(r.date||'').startsWith(m)).length;
@@ -521,15 +540,20 @@ async function exportExcel(recs,label){
   if(mode==='actual') cols.push({k:'gas',h:'ガソリン代',w:11,y:1});
   if(mode==='fixed')  cols.push({k:'gasF',h:'ガソリン代（定額）',w:14,y:1});
   if(mode==='km'){ cols.push({k:'km',h:'走行距離(km)',w:12,km:1}); cols.push({k:'gasK',h:'ガソリン代',w:11,y:1,f:1}); }
+  if(mode==='fuel'){ cols.push({k:'km',h:'走行距離(km)',w:12,km:1}); cols.push({k:'mpg',h:'燃費(km/L)',w:11,km:1}); cols.push({k:'gasK',h:'ガソリン代',w:11,y:1,f:1}); }
+  const em=S.exp.extraMode, en=S.exp.extraName||'補助金';
+  if(em==='input') cols.push({k:'extra',h:en,w:11,y:1});
+  if(em==='fixed') cols.push({k:'extraF',h:en+'（定額）',w:13,y:1});
   cols.push({k:'sub',h:'小計',w:12,y:1,f:1}); cols.push({k:'note',h:'精算メモ',w:22});
   const col=i=>String.fromCharCode(65+i); const ci=k=>cols.findIndex(c=>c.k===k);
   const wb=new ExcelJS.Workbook(); wb.creator='RidePlan';
   const ws=wb.addWorksheet('明細',{views:[{state:'frozen',ySplit:4}]});
   ws.columns=cols.map(c=>({width:c.w}));
   ws.mergeCells(1,1,1,cols.length); ws.getCell('A1').value=`${S.club?S.club+'　':''}配車 経費明細　${label}`; ws.getCell('A1').font={bold:true,size:14,color:{argb:'FF'+D}};
-  const modeTxt={actual:'ガソリン代：実費',fixed:`ガソリン代：定額 ${yen(S.exp.gasFixed)}／回`,km:'ガソリン代：距離×単価',none:'ガソリン代：精算なし'}[mode];
+  const modeTxt={actual:'ガソリン代：実費',fixed:`ガソリン代：定額 ${yen(S.exp.gasFixed)}／回`,km:'ガソリン代：距離×単価',fuel:'ガソリン代：走行距離÷燃費×ガソリン単価',none:'ガソリン代：精算なし'}[mode]
+    +(em==='fixed'?`　／　${en}：定額 ${yen(S.exp.extraFixed)}／回`:'');
   ws.getCell('A2').value=modeTxt; ws.getCell('A2').font={color:{argb:'FF6B7A73'},size:10};
-  if(mode==='km'){ ws.getCell('D2').value='単価（円/km）'; ws.getCell('D2').alignment={horizontal:'right'}; ws.getCell('E2').value=+S.exp.gasRate||0; ws.getCell('E2').numFmt='#,##0.0'; ws.getCell('E2').font={bold:true}; }
+  if(mode==='km'||mode==='fuel'){ ws.getCell('D2').value=mode==='km'?'単価（円/km）':'ガソリン単価（円/L）'; ws.getCell('D2').alignment={horizontal:'right'}; ws.getCell('E2').value=mode==='km'?(+S.exp.gasRate||0):(+S.exp.fuelPrice||0); ws.getCell('E2').numFmt='#,##0.0'; ws.getCell('E2').font={bold:true}; }
   const HR=4; const hdr=ws.getRow(HR);
   cols.forEach((c,i)=>{ const cell=hdr.getCell(i+1); cell.value=c.h; cell.font={bold:true,color:{argb:'FFFFFFFF'}}; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF'+G}}; cell.alignment={horizontal:'center',vertical:'middle'}; });
   hdr.height=20;
@@ -538,10 +562,11 @@ async function exportExcel(recs,label){
     cols.forEach((c,i)=>{ const cell=row.getCell(i+1); let v='';
       if(c.k==='date') v=r.date?new Date(r.date+'T00:00:00'):'';
       else if(c.k==='gasF') v=+S.exp.gasFixed||0;
-      else if(c.k==='gasK') v={formula:`ROUND(${col(ci('km'))}${n}*$E$2,0)`};
-      else if(c.k==='sub'){ const parts=['toll','parking',mode==='actual'?'gas':mode==='fixed'?'gasF':mode==='km'?'gasK':null].filter(Boolean).map(k=>`${col(ci(k))}${n}`); v={formula:parts.join('+')}; }
+      else if(c.k==='extraF') v=+S.exp.extraFixed||0;
+      else if(c.k==='gasK') v=mode==='km'?{formula:`ROUND(${col(ci('km'))}${n}*$E$2,0)`}:{formula:`IF(${col(ci('mpg'))}${n}>0,ROUND(${col(ci('km'))}${n}/${col(ci('mpg'))}${n}*$E$2,0),0)`};
+      else if(c.k==='sub'){ const parts=['toll','parking',mode==='actual'?'gas':mode==='fixed'?'gasF':(mode==='km'||mode==='fuel')?'gasK':null,em==='input'?'extra':em==='fixed'?'extraF':null].filter(Boolean).map(k=>`${col(ci(k))}${n}`); v={formula:parts.join('+')}; }
       else v=r[c.k]??'';
-      if((c.y||c.km)&&v===0&&!c.f&&c.k!=='gasF') v=null;
+      if((c.y||c.km)&&v===0&&!c.f&&c.k!=='gasF'&&c.k!=='extraF') v=null;
       cell.value=v; cell.border=border;
       if(c.k==='date'){ cell.numFmt='m/d(aaa)'; cell.alignment={horizontal:'center'}; }
       if(c.y) cell.numFmt='¥#,##0;-¥#,##0;""'; if(c.km) cell.numFmt='#,##0.0;;""';
@@ -554,8 +579,9 @@ async function exportExcel(recs,label){
     if(c.y||c.km){ cell.value={formula:`SUM(${col(i)}${HR+1}:${col(i)}${last})`}; cell.numFmt=c.km?'#,##0.0':'¥#,##0'; cell.font={bold:true}; } });
   /* 運転者別集計 */
   const ws2=wb.addWorksheet('運転者別集計'); const drivers=[...new Set(rows.map(r=>r.driver))];
-  const gk=mode==='actual'?'gas':mode==='fixed'?'gasF':mode==='km'?'gasK':null;
-  const c2=[{h:'運転者',w:14},{h:'出車回数',w:10},{h:'高速代',w:12},{h:'駐車場代',w:12}]; if(gk) c2.push({h:'ガソリン代',w:12}); c2.push({h:'合計',w:13});
+  const gk=mode==='actual'?'gas':mode==='fixed'?'gasF':(mode==='km'||mode==='fuel')?'gasK':null;
+  const ek=em==='input'?'extra':em==='fixed'?'extraF':null;
+  const c2=[{h:'運転者',w:14},{h:'出車回数',w:10},{h:'高速代',w:12},{h:'駐車場代',w:12}]; if(gk) c2.push({h:'ガソリン代',w:12}); if(ek) c2.push({h:en,w:12}); c2.push({h:'合計',w:13});
   ws2.columns=c2.map(c=>({width:c.w}));
   ws2.mergeCells(1,1,1,c2.length); ws2.getCell('A1').value=`${S.club?S.club+'　':''}運転者別 精算額　${label}`; ws2.getCell('A1').font={bold:true,size:14,color:{argb:'FF'+D}};
   ws2.getCell('A2').value='「明細」シートの数値から自動集計（明細を直すとここも変わります）'; ws2.getCell('A2').font={color:{argb:'FF6B7A73'},size:10};
@@ -565,6 +591,7 @@ async function exportExcel(recs,label){
     const put=(v,fmt,bold)=>{ const cell=row.getCell(j++); cell.value=v; cell.border=border; if(fmt) cell.numFmt=fmt; if(bold) cell.font={bold:true}; };
     put(dname); put({formula:`COUNTIF(${rng},A${n})`},'0"回"'); put({formula:`SUMIF(${rng},A${n},${sumR('toll')})`},'¥#,##0'); put({formula:`SUMIF(${rng},A${n},${sumR('parking')})`},'¥#,##0');
     if(gk) put({formula:`SUMIF(${rng},A${n},${sumR(gk)})`},'¥#,##0');
+    if(ek) put({formula:`SUMIF(${rng},A${n},${sumR(ek)})`},'¥#,##0');
     put({formula:`SUM(C${n}:${col(j-2)}${n})`},'¥#,##0',true); });
   const l2=4+drivers.length, t2=ws2.getRow(l2+1); t2.getCell(1).value='合計'; t2.getCell(1).font={bold:true};
   c2.forEach((c,i)=>{ const cell=t2.getCell(i+1); cell.border=border; cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF'+L}};
@@ -587,7 +614,9 @@ function renderSettings(V){
       <div class="grid2">
         <div class="field" style="margin:0"><label>定員（運転席を含む）</label><input type="number" inputmode="numeric" min="2" max="14" value="${c.cap}" oninput="S.cars[${i}].cap=Math.max(2,+this.value||2);saveS()"></div>
         <div class="field" style="margin:0"><label>普段の運転者</label><input type="text" value="${esc(c.driver)}" placeholder="例：山田（父）" oninput="S.cars[${i}].driver=this.value;saveS()"></div>
-      </div></div>`; });
+      </div>
+      ${S.exp.gasMode==='fuel'?`<div class="field" style="margin:0"><label>燃費（km/L）　※ガソリン代の計算に使います</label><input type="number" inputmode="decimal" min="0" step="0.1" value="${c.mpg||''}" placeholder="例：12.5" onchange="S.cars[${i}].mpg=+this.value||0;saveS()"></div>`:''}
+      </div>`; });
   h+=`<div class="muted" style="margin-top:8px">運転者は配車ごとに変えられます。</div></div>`;
 
   h+=`<div class="sec-h"><h2>メンバー</h2><div class="row"><button class="btn sm sub" onclick="bulkMembers()">まとめて追加</button><button class="btn sm" onclick="addMember()">＋ 追加</button></div></div><div class="card">`;
@@ -598,15 +627,25 @@ function renderSettings(V){
       <button class="ico" onclick="mv('members',${i},-1)">▲</button><button class="ico del" onclick="delItem('members',${i})">✕</button></div>`; });
   h+=`<div class="muted" style="margin-top:8px">並び順は▲で上へ。学年は任意（メモ用）。</div></div>`;
 
-  const gm=S.exp.gasMode;
+  const gm=S.exp.gasMode, em=S.exp.extraMode;
   h+=`<div class="sec-h"><h2>経費（精算）</h2></div><div class="card">
     <div class="field"><label>ガソリン代の精算方法</label><select onchange="S.exp.gasMode=this.value;saveS();render()">
       <option value="actual" ${gm==='actual'?'selected':''}>実費（車ごとに金額を入力）</option>
       <option value="fixed" ${gm==='fixed'?'selected':''}>定額（1回出すごとに一律）</option>
-      <option value="km" ${gm==='km'?'selected':''}>距離×単価（車ごとに走行距離を入力）</option>
+      <option value="km" ${gm==='km'?'selected':''}>距離×単価（円／km）</option>
+      <option value="fuel" ${gm==='fuel'?'selected':''}>距離÷燃費×ガソリン単価（円／L）</option>
       <option value="none" ${gm==='none'?'selected':''}>精算しない</option></select></div>
-    ${gm==='fixed'?`<div class="field" style="margin:0"><label>1回あたりの金額（円）</label><input type="number" inputmode="numeric" min="0" value="${S.exp.gasFixed||''}" placeholder="例：1000" onchange="S.exp.gasFixed=+this.value||0;saveS()"></div>`:''}
-    ${gm==='km'?`<div class="field" style="margin:0"><label>単価（円／km）</label><input type="number" inputmode="decimal" min="0" step="0.1" value="${S.exp.gasRate||''}" placeholder="例：15" onchange="S.exp.gasRate=+this.value||0;saveS()"></div>`:''}
+    ${gm==='fixed'?`<div class="field"><label>1回あたりの金額（円）</label><input type="number" inputmode="numeric" min="0" value="${S.exp.gasFixed||''}" placeholder="例：1000" onchange="S.exp.gasFixed=+this.value||0;saveS()"></div>`:''}
+    ${gm==='km'?`<div class="field"><label>単価（円／km）</label><input type="number" inputmode="decimal" min="0" step="0.1" value="${S.exp.gasRate||''}" placeholder="例：15" onchange="S.exp.gasRate=+this.value||0;saveS()"></div>`:''}
+    ${gm==='fuel'?`<div class="field"><label>ガソリン単価（円／L）</label><input type="number" inputmode="decimal" min="0" step="0.1" value="${S.exp.fuelPrice||''}" placeholder="例：170" onchange="S.exp.fuelPrice=+this.value||0;saveS()"></div>
+      <div class="muted" style="margin:-4px 0 8px">燃費（km/L）は上の「車」ごとに入力します。ガソリン代＝走行距離÷燃費×単価（円未満四捨五入）</div>`:''}
+    <div class="field"><label>追加項目（補助金など）</label><select onchange="S.exp.extraMode=this.value;saveS();render()">
+      <option value="none" ${em==='none'?'selected':''}>使わない</option>
+      <option value="input" ${em==='input'?'selected':''}>車ごとに金額を入力</option>
+      <option value="fixed" ${em==='fixed'?'selected':''}>定額（1回出すごとに一律）</option></select></div>
+    ${em!=='none'?`<div class="grid2"><div class="field"><label>項目名</label><input type="text" value="${esc(S.exp.extraName||'')}" placeholder="例：補助金" onchange="S.exp.extraName=this.value||'補助金';saveS()"></div>
+      ${em==='fixed'?`<div class="field"><label>1回あたりの金額（円）</label><input type="number" inputmode="numeric" value="${S.exp.extraFixed||''}" placeholder="例：500" onchange="S.exp.extraFixed=+this.value||0;saveS()"></div>`:'<div></div>'}</div>
+      <div class="muted" style="margin:-4px 0 8px">小計に加算されます。差し引きたい場合はマイナスの金額を入力してください</div>`:''}
     <div class="muted" style="margin-top:8px">高速代・駐車場代は常に実費です。各配車の車カード「💴経費」に入力し、「経費Excel」で書き出します。</div>
   </div>`;
   h+=`<div class="sec-h"><h2>バックアップ</h2></div><div class="card">
@@ -665,7 +704,8 @@ function showHelp(){
       <li>各車カードの「💴経費」に高速代・駐車場代（ガソリン代は設定の方式に応じて金額または走行距離）を入力</li>
       <li>「📊経費Excel（この配車）」で1試合分、トップの「📊月の経費Excel」で月まとめを書き出し</li>
       <li>Excelは「明細」と「運転者別集計」の2シート。集計は数式なので、明細を直せば追随します</li>
-      <li>ガソリン代の方式（実費／定額／距離×単価／精算しない）は「⚙️設定 → 経費」で選びます</li>
+      <li>ガソリン代の方式（実費／定額／距離×単価／距離÷燃費×ガソリン単価／精算しない）は「⚙️設定 → 経費」で選びます。燃費方式は車ごとの燃費（km/L）を設定の車の欄に入力</li>
+      <li>補助金など、小計に足したい（または引きたい）項目は「⚙️設定 → 経費 → 追加項目」で名前と方式を決めると、経費欄とExcelに列が増えます</li>
     </ul>
 
     <h4>便利な使い方</h4>
