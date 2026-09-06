@@ -114,7 +114,8 @@ details.past .body .rec{margin-top:8px}
 .seat.dr{background:var(--ink);color:#fff;border-color:var(--ink);flex-direction:column;line-height:1.1;font-size:12px}
 .seat.dr small{font-size:10px;opacity:.75}
 .seat.cargo{background:repeating-linear-gradient(135deg,#EEF2EF 0 6px,#E0E6E2 6px 12px);color:var(--mute);border-style:dashed;font-size:12px}
-.seat.extra{background:#F5F0E6;color:#8A7550;border-color:#E3D9C4;border-style:dashed;font-size:12px}
+.seat.extra{background:#F5F0E6;color:#A08650;border-color:#E3D9C4;border-style:dashed;font-size:12px}
+.seat.extra.named{color:#7A5B1E;font-weight:700;border-style:solid;font-size:13px}
 .seat.open{background:#fff;border-style:dashed;color:var(--field);font-size:22px;font-weight:400}
 .seat.on{background:var(--seatOn);border-color:var(--field);border-width:2px}
 .seat.over{background:#FBE7E0;border-color:var(--alert);color:var(--alert)}
@@ -173,6 +174,7 @@ textarea.out{width:100%;height:240px;padding:10px;border:1px solid var(--line);b
   #print th,#print td{border:1px solid #000;padding:5px 7px;text-align:left;vertical-align:top}
   #print th{background:#eee;font-weight:700;width:120px}
   #print .foot{font-size:11px;color:#444;margin-top:8px}
+  #print .xg{color:#8A7550}
   @page{size:A4 portrait;margin:8mm}
 }
 </style>
@@ -357,7 +359,7 @@ function renderEdit(V){
       const ms=memberSeats(c,d);
       let seats=`<div class="seat dr"><span>${esc(d.driver||'Dr')}</span><small>運転</small></div>`;
       for(let i=0;i<(d.cargo|0);i++) seats+=`<div class="seat cargo">荷物</div>`;
-      for(let i=0;i<(d.extra|0);i++) seats+=`<div class="seat extra">メンバー外</div>`;
+      for(let i=0;i<(d.extra|0);i++){ const nm=(d.extraNames||[])[i]; seats+=`<div class="seat extra ${nm?'named':''}" onclick="editExtra('${c.id}',${i})" title="タップで名前を編集">${esc(nm||'メンバー外')}</div>`; }
       d.riders.forEach((id,i)=>{ seats+=`<div class="seat ${i<ms?'on':'over'}" onclick="unassign('${c.id}','${id}')" title="タップで外す">${esc(mName(id))}</div>`; });
       for(let i=d.riders.length;i<ms;i++) seats+=`<div class="seat open" onclick="pickMember('${c.id}')">＋</div>`;
       h+=`<div class="car-body">
@@ -385,7 +387,7 @@ function renderEdit(V){
             <div class="field" style="margin:0"><label>精算メモ</label><input type="text" value="${esc(d.expNote||'')}" placeholder="例：領収書受領済み" oninput="updCar('${c.id}','expNote',this.value)"></div>
           </div>
         </details>
-        ${d.riders.length>ms?`<div class="seat-note" style="color:var(--alert)">席が ${d.riders.length-ms} 人分足りません。タップして外すか、荷物・メンバー外を減らしてください。</div>`:`<div class="seat-note">乗っている人をタップすると外せます。</div>`}
+        ${d.riders.length>ms?`<div class="seat-note" style="color:var(--alert)">席が ${d.riders.length-ms} 人分足りません。タップして外すか、荷物・メンバー外を減らしてください。</div>`:`<div class="seat-note">乗っている人をタップで外す／メンバー外の席をタップで名前を入力（例：山田母）。</div>`}
       </div>`;
     }
     h+=`</div>`;
@@ -418,8 +420,13 @@ function upd(k,v){ const r=cur(); r[k]=v; touch(r); if(k==='date'||k==='trip'||k
 function setTrip(t){ const r=cur(); if(t==='other'){ r.trip='（入力）'; } else { r.trip=(r.trip===t)?'':t; } touch(r); render(); }
 function updCar(cid,k,v){ const r=cur(); const c=S.cars.find(c=>c.id===cid); carOf(r,c)[k]=v; touch(r);
   if(k==='driver'){ const el=document.querySelector(`.seat.dr span`); } /* 再描画は入力終了後でよいため省略 */ }
+function editExtra(cid,i){ const r=cur(); const c=S.cars.find(c=>c.id===cid); const d=carOf(r,c);
+  d.extraNames=d.extraNames||[]; const v=prompt('この席に乗る方（例：山田母・空欄で「メンバー外」に戻す）', d.extraNames[i]||'');
+  if(v===null) return; d.extraNames[i]=v.trim(); touch(r); render(); }
 function stepCar(cid,k,dlt){ const r=cur(); const c=S.cars.find(c=>c.id===cid); const d=carOf(r,c);
-  d[k]=Math.max(0,Math.min((c.cap|0)-1,(d[k]|0)+dlt)); touch(r); render(); }
+  d[k]=Math.max(0,Math.min((c.cap|0)-1,(d[k]|0)+dlt));
+  if(k==='extra'){ d.extraNames=(d.extraNames||[]).slice(0,d[k]); }
+  touch(r); render(); }
 function toggleUse(cid){ const r=cur(); const c=S.cars.find(c=>c.id===cid); const d=carOf(r,c);
   if(d.use && d.riders.length && !confirm(`${c.name}を出さない車にすると、乗っている${d.riders.length}人は未割当に戻ります。よろしいですか？`)) return;
   d.use=!d.use; if(!d.use) d.riders=[]; touch(r); render(); }
@@ -474,8 +481,9 @@ function lineText(){
   const cars=S.cars.filter(c=>carOf(r,c).use);
   cars.forEach(c=>{ const d=carOf(r,c);
     L.push(`■${c.name}${d.driver?`（Dr ${d.driver}）`:''}`);
-    L.push(`　${d.riders.length?d.riders.map(mName).join('・'):'（なし）'}`);
-    const n=[d.cargo?`荷物${d.cargo}席`:'', d.extra?`メンバー外${d.extra}席`:'', d.note||''].filter(Boolean).join('・'); if(n) L.push(`　※${n}`);
+    const exN=(d.extraNames||[]).filter(Boolean), exU=(d.extra|0)-exN.length;
+    L.push(`　${d.riders.length?d.riders.map(mName).join('・'):'（なし）'}${exN.length?`　＋${exN.join('・')}`:''}`);
+    const n=[d.cargo?`荷物${d.cargo}席`:'', exU>0?`メンバー外${exU}席`:'', d.note||''].filter(Boolean).join('・'); if(n) L.push(`　※${n}`);
   });
   const assigned=new Set(cars.flatMap(c=>carOf(r,c).riders));
   const un=S.members.filter(m=>!r.absent.includes(m.id)&&!assigned.has(m.id));
@@ -497,7 +505,8 @@ function doPrint(){
   let h=`<h1>${esc(H[0].replace(/[【】]/g,''))}　<span style="font-weight:400;font-size:14px">配車表</span></h1><div class="meta">${S.club?`${esc(S.club)}<br>`:''}${H.slice(1).map(esc).join('<br>')}</div>`;
   h+=`<table><tr><th>車（運転者）</th><th>乗る人</th><th style="width:150px">備考</th></tr>`;
   cars.forEach(c=>{ const d=carOf(r,c);
-    h+=`<tr><td><b>${esc(c.name)}</b><br>${esc(d.driver||'')}</td><td>${d.riders.map(id=>esc(mName(id))).join('　')||'—'}</td><td>${[d.cargo?`荷物 ${d.cargo}席`:'',d.extra?`メンバー外 ${d.extra}席`:'',esc(d.note||'')].filter(Boolean).join('<br>')}</td></tr>`; });
+    const exN=(d.extraNames||[]).filter(Boolean), exU=(d.extra|0)-exN.length;
+    h+=`<tr><td><b>${esc(c.name)}</b><br>${esc(d.driver||'')}</td><td>${d.riders.map(id=>esc(mName(id))).join('　')||'—'}${exN.length?`　<span class="xg">${exN.map(esc).join('　')}</span>`:''}</td><td>${[d.cargo?`荷物 ${d.cargo}席`:'',exU>0?`メンバー外 ${exU}席`:'',esc(d.note||'')].filter(Boolean).join('<br>')}</td></tr>`; });
   h+=`</table>`;
   const assigned=new Set(cars.flatMap(c=>carOf(r,c).riders));
   const un=S.members.filter(m=>!r.absent.includes(m.id)&&!assigned.has(m.id));
