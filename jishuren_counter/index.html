@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>自主練カウンター</title>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+  /* 素振りカウンターと同じ「スコアボード」の見た目。色はここだけで管理する */
+  :root{
+    --board:#0c1210;        /* スコアボードの盤面 */
+    --board-deep:#080d0b;   /* 盤面のくぼみ */
+    --board-line:#1c2a24;   /* 盤面の枠線 */
+    --lamp:#ffb627;         /* 電光の数字 */
+    --lamp-dim:#4a3a14;     /* 消灯ランプ */
+    --chalk:#f2efe6;        /* チョークの白 */
+    --clay:#b5652e;         /* 土の色（警告・停止） */
+    --grass:#2e7d4f;        /* 芝（開始・達成） */
+    --grass-lit:#58c487;    /* 達成の文字色 */
+    --mute:#7a8a80;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    background:var(--board);
+    color:var(--chalk);
+    font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;
+    min-height:100dvh;
+    user-select:none;-webkit-user-select:none;
+  }
+  .dot{font-family:"DotGothic16",monospace}
+  button{font-family:inherit}
+  .view{display:none;flex-direction:column;min-height:100dvh}
+  .view.on{display:flex}
+
+  header{
+    padding:14px 16px 10px;
+    border-bottom:2px solid var(--board-line);
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+  }
+  header .date{font-size:12px;color:var(--mute);letter-spacing:.08em}
+  header .title{font-size:17px;color:var(--chalk);letter-spacing:.1em}
+  .gear{
+    background:none;border:1px solid var(--board-line);color:var(--mute);
+    border-radius:6px;padding:7px 11px;font-size:12px;
+  }
+
+  /* ===== ホーム：きょうの進み具合 ===== */
+  .summary{
+    padding:16px;border-bottom:2px solid var(--board-line);
+    display:flex;align-items:flex-end;justify-content:space-between;gap:12px;
+  }
+  .summary .lbl{font-size:10px;color:var(--mute);letter-spacing:.2em;margin-bottom:4px;white-space:nowrap}
+  .summary .big{font-size:44px;line-height:1;color:var(--lamp);text-shadow:0 0 14px rgba(255,182,39,.3)}
+  .summary .big small{font-size:18px;color:var(--mute)}
+  .all-done .summary .big{color:var(--grass-lit);text-shadow:0 0 16px rgba(88,196,135,.45)}
+  .week{display:flex;gap:4px}
+  .week .d{
+    width:30px;padding:4px 0 5px;text-align:center;border-radius:6px;
+    background:var(--board-deep);border:1px solid var(--board-line);
+  }
+  .week .w{font-size:9px;color:var(--mute)}
+  .week .n{font-size:13px;color:var(--lamp-dim)}
+  .week .d.some .n{color:var(--lamp)}
+  .week .d.full{border-color:var(--grass)}
+  .week .d.full .n{color:var(--grass-lit)}
+  .week .d.today{outline:1px solid var(--mute);outline-offset:1px}
+
+  .menu{flex:1;padding:12px 16px;display:flex;flex-direction:column;gap:8px}
+  .item{
+    width:100%;text-align:left;color:var(--chalk);
+    background:var(--board-deep);border:2px solid var(--board-line);border-radius:12px;
+    padding:12px 14px 10px;display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;
+  }
+  .item .name{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .item .tag{
+    font-size:10px;font-weight:400;color:var(--mute);border:1px solid var(--board-line);
+    border-radius:4px;padding:1px 5px;letter-spacing:.05em;
+  }
+  .item .nums{font-size:22px;color:var(--lamp);white-space:nowrap}
+  .item .nums small{font-size:13px;color:var(--mute)}
+  .item .bar{grid-column:1/-1;height:5px;border-radius:3px;background:var(--lamp-dim);overflow:hidden}
+  .item .bar i{display:block;height:100%;background:var(--lamp);width:0}
+  .item.done{border-color:var(--grass)}
+  .item.done .nums{color:var(--grass-lit)}
+  .item.done .bar{background:#16352a}
+  .item.done .bar i{background:var(--grass-lit)}
+  .item:focus-visible,.gear:focus-visible,button:focus-visible{outline:2px solid var(--lamp);outline-offset:2px}
+  .foot-note{font-size:11px;color:var(--mute);text-align:center;padding:4px 16px calc(16px + env(safe-area-inset-bottom))}
+
+  /* ===== カウント画面 ===== */
+  .goalbar{display:flex;gap:8px;padding:12px 16px;border-bottom:2px solid var(--board-line)}
+  .goalbar .cell{
+    flex:1;background:var(--board-deep);border:1px solid var(--board-line);
+    border-radius:8px;padding:8px 10px;text-align:center;
+  }
+  .cell .lbl{font-size:10px;color:var(--mute);letter-spacing:.15em;margin-bottom:2px}
+  .cell .num{font-size:22px;color:var(--lamp)}
+  main{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:10px 16px}
+  .count-panel{
+    width:100%;max-width:420px;background:var(--board-deep);
+    border:2px solid var(--board-line);border-radius:14px;
+    padding:18px 12px 10px;text-align:center;
+    box-shadow:inset 0 0 40px rgba(0,0,0,.6);
+  }
+  .count-panel .lbl{font-size:11px;color:var(--mute);letter-spacing:.3em}
+  #count{
+    font-size:min(38vw,150px);line-height:1.05;color:var(--lamp);
+    text-shadow:0 0 18px rgba(255,182,39,.35);
+  }
+  #count.flash{animation:flash .25s}
+  @keyframes flash{50%{color:#fff;text-shadow:0 0 30px rgba(255,255,255,.8)}}
+  .goal-done #count{color:var(--grass-lit);text-shadow:0 0 22px rgba(88,196,135,.5)}
+  .status{
+    margin-top:8px;min-height:20px;font-size:13px;color:var(--mute);
+    display:flex;justify-content:center;align-items:center;gap:8px;
+  }
+  .mic-dot{width:9px;height:9px;border-radius:50%;background:var(--lamp-dim);display:inline-block}
+  .mic-dot.on{background:#e05252;animation:blink 1.2s infinite}
+  .tap-mode .mic-dot{display:none}
+  @keyframes blink{50%{opacity:.3}}
+  #heard{font-size:12px;color:#556158;margin-top:4px;min-height:16px}
+  .goal-msg{margin-top:10px;font-size:18px;color:var(--grass-lit);letter-spacing:.2em;visibility:hidden}
+  .goal-done .goal-msg{visibility:visible;animation:blink 1s infinite}
+
+  footer{padding:12px 16px calc(16px + env(safe-area-inset-bottom))}
+  .btn-row{display:flex;gap:10px;margin-bottom:10px}
+  button.big{
+    flex:1;border:none;border-radius:12px;
+    padding:16px 8px;font-size:17px;font-weight:700;color:#fff;
+  }
+  #startBtn{background:var(--grass)}
+  #startBtn.stop{background:var(--clay)}
+  .tap-mode #startBtn{padding:26px 8px;font-size:21px}
+  #plusBtn,#minusBtn{background:#243530;color:var(--chalk);flex:0 0 70px}
+  .tap-mode #plusBtn{display:none}
+  button:disabled{opacity:.35}
+  #finishBtn{
+    width:100%;background:none;border:2px solid var(--board-line);
+    border-radius:12px;padding:13px;font-size:15px;color:var(--chalk);
+  }
+  #discardBtn{
+    width:100%;background:none;border:none;margin-top:10px;
+    font-size:13px;color:var(--mute);text-decoration:underline;
+  }
+  .note{font-size:11px;color:var(--mute);text-align:center;margin-top:8px}
+
+  /* ===== 設定・履歴 ===== */
+  dialog{
+    background:var(--board);color:var(--chalk);
+    border:2px solid var(--board-line);border-radius:14px;
+    width:min(92vw,420px);max-height:88dvh;padding:18px;margin:auto;overflow-y:auto;
+  }
+  dialog::backdrop{background:rgba(0,0,0,.7)}
+  dialog h2{font-size:15px;margin-bottom:12px;letter-spacing:.1em}
+  dialog h3{font-size:12px;color:var(--mute);font-weight:400;margin:16px 0 6px;letter-spacing:.1em}
+  dialog label{font-size:12px;color:var(--mute);display:block;margin:10px 0 4px}
+  dialog input{
+    width:100%;background:var(--board-deep);border:1px solid var(--board-line);
+    border-radius:8px;padding:10px;color:var(--chalk);font-size:16px;
+  }
+  .mrow{display:grid;grid-template-columns:1fr 76px 76px;gap:6px;align-items:center;margin-bottom:6px;font-size:13px}
+  .mrow.head{font-size:10px;color:var(--mute);margin-bottom:2px}
+  .mrow input{padding:8px;text-align:center}
+  dialog .close{margin-top:16px;width:100%;background:#243530;border:none;
+    border-radius:10px;padding:12px;color:var(--chalk);font-size:14px}
+  .hist{font-size:12px;color:var(--mute);max-height:26vh;overflow-y:auto}
+  .hist div{padding:4px 0;border-bottom:1px solid var(--board-line)}
+  .hist .unsent{color:var(--clay)}
+
+  @media (prefers-reduced-motion:reduce){
+    #count.flash,.mic-dot.on,.goal-done .goal-msg{animation:none}
+  }
+</style>
+</head>
+<body>
+
+<!-- ===================== ホーム ===================== -->
+<section class="view on" id="homeView">
+  <header>
+    <div>
+      <div class="title dot">自主練カウンター</div>
+      <div class="date dot" id="dateLabel"></div>
+    </div>
+    <button class="gear" id="gearBtn">設定</button>
+  </header>
+
+  <div class="summary">
+    <div>
+      <div class="lbl dot">おわった種目</div>
+      <div class="big dot"><span id="doneCount">0</span><small> / <span id="itemCount">6</span></small></div>
+    </div>
+    <div>
+      <div class="lbl dot" style="text-align:right">この1週間</div>
+      <div class="week" id="week"></div>
+    </div>
+  </div>
+
+  <div class="menu" id="menu"></div>
+  <div class="foot-note">種目をえらんでスタート。とちゅうで分けてやってもOK</div>
+</section>
+
+<!-- ===================== カウント画面 ===================== -->
+<section class="view" id="countView">
+  <header>
+    <button class="gear" id="backBtn">← もどる</button>
+    <div class="title dot" id="itemTitle"></div>
+    <span style="width:64px"></span>
+  </header>
+
+  <div class="goalbar">
+    <div class="cell"><div class="lbl dot">目標</div><div class="num dot" id="goalNum">0</div></div>
+    <div class="cell"><div class="lbl dot">きょうの合計</div><div class="num dot" id="todayTotal">0</div></div>
+    <div class="cell"><div class="lbl dot">あと</div><div class="num dot" id="remain">0</div></div>
+  </div>
+
+  <main>
+    <div class="count-panel">
+      <div class="lbl dot">COUNT</div>
+      <div class="dot" id="count">0</div>
+      <div class="status">
+        <span class="mic-dot" id="micDot"></span>
+        <span id="statusText"></span>
+      </div>
+      <div id="heard"></div>
+      <div class="goal-msg dot">★ 目標たっせい！ ★</div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="btn-row">
+      <button class="big" id="startBtn">スタート</button>
+      <button class="big" id="plusBtn" disabled>+1</button>
+      <button class="big" id="minusBtn" disabled>−1</button>
+    </div>
+    <button id="finishBtn" disabled>終了して記録する</button>
+    <button id="discardBtn" disabled>記録せずにやり直す</button>
+    <div class="note" id="note"></div>
+  </footer>
+</section>
+
+<dialog id="settingsDlg">
+  <h2>設定（おうちの人用）</h2>
+  <label for="nickName">ニックネーム（チームで使うとき）</label>
+  <input id="nickName" type="text" placeholder="例：たろう">
+  <label for="gasUrl">記録送信先URL（GASウェブアプリ）</label>
+  <input id="gasUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec">
+
+  <h3>メニュー（1日の目標と、カウントの最短間隔）</h3>
+  <div class="mrow head"><span>種目</span><span style="text-align:center">目標</span><span style="text-align:center">間隔（秒）</span></div>
+  <div id="menuEdit"></div>
+
+  <h3>さいきんの記録</h3>
+  <div class="hist" id="histList"></div>
+  <button class="close" id="closeDlg">保存して閉じる</button>
+</dialog>
+
+<script>
+(() => {
+  'use strict';
+
+  // ===== メニュー定義 =====
+  // mode: 'voice' = 声で「いち、に…」と数える ／ 'tap' = 1本ごとにボタンを押す
+  // intv: カウントの最短間隔（秒）。これより速い声・タップは無効（ズル防止）
+  // ※ 種目を増やす・変えるときはここを直す。目標と間隔は設定画面からも変えられる
+  const DEFAULT_MENU = [
+    { id:'fukkin', name:'腹筋',         unit:'回', goal:30,  mode:'voice', intv:1.2 },
+    { id:'haikin', name:'背筋',         unit:'回', goal:30,  mode:'voice', intv:1.2 },
+    { id:'ude',    name:'腕立て',       unit:'回', goal:30,  mode:'voice', intv:1.2 },
+    { id:'dash',   name:'ダッシュ',     unit:'本', goal:10,  mode:'tap',   intv:10  },
+    { id:'saka',   name:'坂道ダッシュ', unit:'本', goal:10,  mode:'tap',   intv:10  },
+    { id:'suburi', name:'素振り',       unit:'回', goal:200, mode:'voice', intv:1.2 },
+  ];
+
+  // ===== 保存先（端末内）=====
+  // 素振りカウンター（sb_〜）と同じサイトに置いても混ざらないよう、jr_ で始める
+  const LS = {
+    day:  d => 'jr_day_' + d,   // その日の種目別合計 {id: 回数}
+    menu: 'jr_menu',            // 目標・間隔の上書き {id: {goal, intv}}
+    hist: 'jr_history',         // セッション履歴（直近200件）
+    gas:  'jr_gas_url',
+    name: 'jr_name',
+  };
+  const store = {
+    get(k, fallback) { try { const v = localStorage.getItem(k); return v === null ? fallback : v; } catch(e) { return fallback; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch(e) {} },
+    json(k, fallback) { try { return JSON.parse(this.get(k, '') || 'null') || fallback; } catch(e) { return fallback; } },
+  };
+
+  const $ = id => document.getElementById(id);
+  const pad = n => String(n).padStart(2, '0');
+  const dateKey = dt => dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate());
+  const todayKey = () => dateKey(new Date());
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  function getMenu() {
+    const ov = store.json(LS.menu, {});
+    return DEFAULT_MENU.map(m => Object.assign({}, m, ov[m.id] || {}));
+  }
+  const dayTotals = d => store.json(LS.day(d), {});
+  const doneCountOf = (d, menu) => { const t = dayTotals(d); return menu.filter(m => (t[m.id] || 0) >= m.goal).length; };
+
+  // ===== 状態 =====
+  let item = null;      // いま開いている種目
+  let session = null;   // {start, count(音声), manual(手動・タップ), lastCountAt}
+  let recog = null;
+  let recogActive = false;
+  let wakeLock = null;
+
+  // ===== ホーム表示 =====
+  function renderHome() {
+    const menu = getMenu();
+    const d = todayKey();
+    const t = dayTotals(d);
+    const n = new Date();
+    $('dateLabel').textContent = n.getFullYear() + '/' + (n.getMonth() + 1) + '/' + n.getDate() + '（' + '日月火水木金土'[n.getDay()] + '）';
+
+    const done = doneCountOf(d, menu);
+    $('doneCount').textContent = done;
+    $('itemCount').textContent = menu.length;
+    $('homeView').classList.toggle('all-done', done === menu.length);
+
+    $('menu').innerHTML = menu.map(m => {
+      const v = t[m.id] || 0;
+      const pct = Math.min(100, Math.round(v / m.goal * 100));
+      return '<button class="item' + (v >= m.goal ? ' done' : '') + '" data-id="' + m.id + '">' +
+        '<span class="name">' + esc(m.name) + '<span class="tag">' + (m.mode === 'voice' ? '声でカウント' : 'タップ') + '</span></span>' +
+        '<span class="nums dot">' + v + '<small> / ' + m.goal + m.unit + (v >= m.goal ? ' 済' : '') + '</small></span>' +
+        '<span class="bar"><i style="width:' + pct + '%"></i></span></button>';
+    }).join('');
+
+    // この1週間（きょうを右端に、種目をいくつ終えたか）
+    let html = '';
+    for (let i = 6; i >= 0; i--) {
+      const dt = new Date(n.getFullYear(), n.getMonth(), n.getDate() - i);
+      const c = doneCountOf(dateKey(dt), menu);
+      html += '<div class="d' + (c === menu.length ? ' full' : c > 0 ? ' some' : '') + (i === 0 ? ' today' : '') + '">' +
+        '<div class="w">' + '日月火水木金土'[dt.getDay()] + '</div><div class="n dot">' + c + '</div></div>';
+    }
+    $('week').innerHTML = html;
+  }
+
+  function show(view) {
+    $('homeView').classList.toggle('on', view === 'home');
+    $('countView').classList.toggle('on', view === 'count');
+    window.scrollTo(0, 0);
+  }
+
+  // ===== カウント画面の表示 =====
+  const idleText = () => item.mode === 'voice' ? '「スタート」を押して、数えながらやろう' : '「スタート」を押してから走ろう';
+
+  function openItem(id) {
+    item = getMenu().find(m => m.id === id);
+    if (!item) return;
+    $('itemTitle').textContent = item.name;
+    $('countView').classList.toggle('tap-mode', item.mode === 'tap');
+    $('note').textContent = item.mode === 'voice'
+      ? '声で「いち、に、さん…」と数える／「まちがい」で1つもどる'
+      : '1本走るたびに大きいボタンを押す／−1で1つもどる';
+    resetUI();
+    refreshTop();
+    show('count');
+  }
+
+  function refreshTop() {
+    const total = dayTotals(todayKey())[item.id] || 0;
+    const live = total + (session ? session.count + session.manual : 0);
+    $('goalNum').textContent = item.goal;
+    $('todayTotal').textContent = live;
+    $('remain').textContent = Math.max(0, item.goal - live);
+    $('countView').classList.toggle('goal-done', live >= item.goal);
+  }
+
+  function setCount(flash) {
+    $('count').textContent = session.count + session.manual;
+    if (flash) {
+      $('count').classList.remove('flash');
+      void $('count').offsetWidth;
+      $('count').classList.add('flash');
+    }
+    refreshTop();
+  }
+
+  // ===== 数字の聞き取り =====
+  const KD = {'〇':0,'零':0,'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9};
+  // 漢数字（〜九百九十九）を数に直す
+  function kanjiToNum(s) {
+    let total = 0, cur = 0;
+    for (const ch of s) {
+      if (ch === '百') { total += (cur || 1) * 100; cur = 0; }
+      else if (ch === '十') { total += (cur || 1) * 10; cur = 0; }
+      else cur = KD[ch];
+    }
+    return total + cur;
+  }
+  // 聞こえた文から数の候補を取り出す。next は「次に来るはずの数」
+  function extractNumbers(text, next) {
+    const out = [];
+    (text.match(/\d+/g) || []).forEach(s => {
+      out.push(parseInt(s, 10));
+      // 「28 29」が「2829」とつながって聞こえたとき：末尾が次の数ならそれを拾う
+      const ns = String(next);
+      if (s.length > ns.length && s.endsWith(ns)) out.push(next);
+    });
+    (text.match(/[〇零一二三四五六七八九十百]+/g) || []).forEach(s => out.push(kanjiToNum(s)));
+    return out.filter(n => Number.isInteger(n) && n > 0 && n < 10000);
+  }
+
+  // 聞き取った数字をカウントに反映（ズル防止ルールつき）
+  function applyNumber(n) {
+    if (!session) return;
+    const now = Date.now();
+    const cur = session.count;
+    const sinceLast = (now - session.lastCountAt) / 1000;
+    const elapsed   = (now - session.start) / 1000;
+
+    if (n === cur + 1) {
+      // 通常の+1：最短間隔チェック
+      if (sinceLast >= item.intv) { session.lastCountAt = now; session.count = n; setCount(true); }
+    } else if (n > cur + 1 && n <= cur + 3) {
+      // 認識が数回抜けたときの追いつき：経過時間が妥当なときだけ許可
+      if (elapsed >= n * item.intv * 0.8) { session.lastCountAt = now; session.count = n; setCount(true); }
+    }
+    // それ以外（大ジャンプ・巻き戻し）は無視 ＝ 「100！」と叫んでも飛ばない
+  }
+
+  // 1つ戻す（連続で戻りすぎないよう2秒のクールダウン）
+  let lastUndoAt = 0;
+  function undoOne() {
+    if (!session) return;
+    const now = Date.now();
+    if (now - lastUndoAt < 2000) return;
+    if (session.manual > 0) session.manual--;
+    else if (session.count > 0) session.count--;
+    else return;
+    lastUndoAt = now;
+    setCount(true);
+    $('statusText').textContent = '1つもどしました';
+  }
+
+  // ===== 音声認識 =====
+  function startRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { $('statusText').textContent = 'このブラウザは音声認識に未対応です（+1ボタンで使えます）'; return; }
+    recog = new SR();
+    recog.lang = 'ja-JP';
+    recog.continuous = true;
+    recog.interimResults = true;
+
+    recog.onresult = ev => {
+      let latest = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const t = ev.results[i][0].transcript;
+        latest += t;
+        // 確定した認識結果に「まちがい」があれば1つ戻す
+        if (ev.results[i].isFinal && /まちがい|間違い/.test(t)) undoOne();
+      }
+      $('heard').textContent = '聞こえた声：' + latest.slice(-20);
+      if (session) extractNumbers(latest, session.count + 1).forEach(applyNumber);
+    };
+    recog.onstart = () => { $('micDot').classList.add('on'); };
+    recog.onend = () => {
+      $('micDot').classList.remove('on');
+      // セッション中は自動で再起動（iOSは認識が勝手に切れるため）
+      const r = recog;
+      if (recogActive && r) { try { r.start(); } catch(e) { setTimeout(() => { if (recogActive && recog === r) { try { r.start(); } catch(e2) {} } }, 400); } }
+    };
+    recog.onerror = e => { if (e.error === 'not-allowed') { $('statusText').textContent = 'マイクの許可が必要です'; recogActive = false; } };
+
+    recogActive = true;
+    try { recog.start(); } catch(e) {}
+  }
+
+  function stopRecognition() {
+    recogActive = false;
+    if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
+    $('micDot').classList.remove('on');
+  }
+
+  // ===== 画面スリープ防止 =====
+  async function acquireWakeLock() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && session) acquireWakeLock();
+  });
+
+  // ===== セッション =====
+  function startSession() {
+    session = { start: Date.now(), count: 0, manual: 0, lastCountAt: Date.now() - (item.mode === 'voice' ? 60000 : 0) };
+    $('count').textContent = '0';
+    $('minusBtn').disabled = false;
+    $('finishBtn').disabled = false;
+    $('discardBtn').disabled = false;
+    if (item.mode === 'voice') {
+      $('startBtn').textContent = 'ストップ';
+      $('startBtn').classList.add('stop');
+      $('plusBtn').disabled = false;
+      $('statusText').textContent = '数えながらやろう！';
+      startRecognition();
+    } else {
+      $('startBtn').textContent = '1本 おわった！';
+      $('statusText').textContent = '走りおわったらボタンを押そう';
+    }
+    acquireWakeLock();
+    refreshTop();
+  }
+
+  function pauseSession() {
+    stopRecognition();
+    $('startBtn').textContent = 'さいかい';
+    $('startBtn').classList.remove('stop');
+    $('statusText').textContent = 'きゅうけい中';
+  }
+
+  function resumeSession() {
+    $('startBtn').textContent = 'ストップ';
+    $('startBtn').classList.add('stop');
+    $('statusText').textContent = '数えながらやろう！';
+    startRecognition();
+  }
+
+  // タップ・+1ボタン共通：最短間隔より速い連打は無効
+  function manualPlus() {
+    if (!session) return;
+    const now = Date.now();
+    const wait = item.intv - (now - session.lastCountAt) / 1000;
+    if (wait > 0) {
+      if (item.mode === 'tap') $('statusText').textContent = 'まだ早いよ（あと' + Math.ceil(wait) + '秒）';
+      return;
+    }
+    session.lastCountAt = now;
+    session.manual++;
+    setCount(true);
+    if (item.mode === 'tap') $('statusText').textContent = session.manual + '本目 OK！';
+  }
+
+  async function finishSession() {
+    if (!session) return;
+    const total = session.count + session.manual;
+    if (total === 0) { resetUI(); return; }
+    if (!confirm(item.name + ' ' + total + item.unit + 'で記録します。いいですか？')) return;
+
+    stopRecognition();
+
+    // チーム運用（送信先あり）でニックネーム未設定なら聞く
+    let name = store.get(LS.name, '');
+    if (!name && store.get(LS.gas, '')) {
+      name = (prompt('ニックネームを入れてね（コーチへの報告に表示されます）') || '').trim();
+      if (name) store.set(LS.name, name);
+    }
+
+    const d = todayKey();
+    const tf = { hour:'2-digit', minute:'2-digit', second:'2-digit' };
+    const rec = {
+      name: name,
+      date: d,
+      menu: item.name,                                  // 種目
+      type: item.mode === 'voice' ? '音声' : 'タップ',  // 入力方式
+      start: new Date(session.start).toLocaleTimeString('ja-JP', tf),
+      end:   new Date().toLocaleTimeString('ja-JP', tf),
+      seconds: Math.round((Date.now() - session.start) / 1000),
+      voice: session.count,
+      manual: session.manual,
+      total: total,
+      goal: item.goal,
+      sent: false,
+    };
+
+    // 今日の合計に加算
+    const t = dayTotals(d);
+    t[item.id] = (t[item.id] || 0) + total;
+    store.set(LS.day(d), JSON.stringify(t));
+
+    // 履歴に保存
+    const hist = store.json(LS.hist, []);
+    hist.push(rec);
+    store.set(LS.hist, JSON.stringify(hist.slice(-200)));
+
+    resetUI();
+    renderHome();
+    show('home');
+    await sendUnsent();
+  }
+
+  function resetUI() {
+    session = null;
+    stopRecognition();
+    if (wakeLock) { try { wakeLock.release(); } catch(e) {} wakeLock = null; }
+    $('startBtn').textContent = 'スタート';
+    $('startBtn').classList.remove('stop');
+    $('plusBtn').disabled = true;
+    $('minusBtn').disabled = true;
+    $('finishBtn').disabled = true;
+    $('discardBtn').disabled = true;
+    $('count').textContent = '0';
+    $('statusText').textContent = item ? idleText() : '';
+    $('heard').textContent = '';
+  }
+
+  // ===== GASへ送信（未送信分をまとめて） =====
+  let sending = false;
+  async function sendUnsent() {
+    const url = store.get(LS.gas, '');
+    if (!url || sending) return;
+    const hist = store.json(LS.hist, []);
+    const unsent = hist.filter(r => !r.sent);
+    if (unsent.length === 0) return;
+    sending = true;
+    for (const r of unsent) {
+      try {
+        await fetch(url, { method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(r) });
+        r.sent = true;
+      } catch(e) { break; } // 電波がないときは次回に持ち越し
+    }
+    // 送信中に増えた記録を消さないよう、最新の履歴に「送信済み」だけ書き戻す
+    const sentKeys = new Set(unsent.filter(r => r.sent).map(r => r.date + r.start + r.menu));
+    const latest = store.json(LS.hist, []);
+    latest.forEach(r => { if (sentKeys.has(r.date + r.start + r.menu)) r.sent = true; });
+    store.set(LS.hist, JSON.stringify(latest));
+    sending = false;
+  }
+
+  // ===== イベント =====
+  $('menu').addEventListener('click', e => {
+    const b = e.target.closest('.item');
+    if (b) openItem(b.dataset.id);
+  });
+
+  $('startBtn').addEventListener('click', () => {
+    if (!session) startSession();
+    else if (item.mode === 'tap') manualPlus();
+    else if (recogActive) pauseSession();
+    else resumeSession();
+  });
+  $('plusBtn').addEventListener('click', manualPlus);
+  $('minusBtn').addEventListener('click', undoOne);
+  $('finishBtn').addEventListener('click', finishSession);
+
+  $('discardBtn').addEventListener('click', () => {
+    if (!session) return;
+    if (confirm('この回のカウントを記録せずに消します。いいですか？')) { resetUI(); refreshTop(); }
+  });
+
+  $('backBtn').addEventListener('click', () => {
+    if (session && session.count + session.manual > 0 &&
+        !confirm('まだ記録していません。記録せずにもどりますか？')) return;
+    resetUI();
+    renderHome();
+    show('home');
+  });
+
+  // ===== 設定ダイアログ =====
+  $('gearBtn').addEventListener('click', () => {
+    $('nickName').value = store.get(LS.name, '');
+    $('gasUrl').value = store.get(LS.gas, '');
+    $('menuEdit').innerHTML = getMenu().map(m =>
+      '<div class="mrow"><span>' + esc(m.name) + '（' + (m.mode === 'voice' ? '声' : 'タップ') + '）</span>' +
+      '<input id="goal_' + m.id + '" type="number" inputmode="numeric" min="1" value="' + m.goal + '" aria-label="' + esc(m.name) + 'の目標">' +
+      '<input id="intv_' + m.id + '" type="number" inputmode="decimal" step="0.1" min="0.5" value="' + m.intv + '" aria-label="' + esc(m.name) + 'の最短間隔">' +
+      '</div>').join('');
+    const hist = store.json(LS.hist, []).slice(-30).reverse();
+    $('histList').innerHTML = hist.map(r =>
+      '<div class="' + (r.sent || !store.get(LS.gas, '') ? '' : 'unsent') + '">' +
+      esc(r.date.slice(5)) + ' ' + esc(r.start.slice(0, 5)) + '　' + esc(r.menu) + ' ' + r.total +
+      '（' + Math.floor(r.seconds / 60) + '分' + (r.seconds % 60) + '秒）' +
+      (r.sent || !store.get(LS.gas, '') ? '' : '　未送信') + '</div>'
+    ).join('') || '<div>まだ記録がありません</div>';
+    $('settingsDlg').showModal();
+  });
+
+  $('closeDlg').addEventListener('click', () => {
+    store.set(LS.name, $('nickName').value.trim());
+    store.set(LS.gas, $('gasUrl').value.trim());
+    const ov = {};
+    DEFAULT_MENU.forEach(m => {
+      const g = parseInt($('goal_' + m.id).value, 10);
+      const iv = parseFloat($('intv_' + m.id).value);
+      ov[m.id] = { goal: g > 0 ? g : m.goal, intv: iv >= 0.5 ? iv : m.intv };
+    });
+    store.set(LS.menu, JSON.stringify(ov));
+    $('settingsDlg').close();
+    renderHome();
+    sendUnsent();
+  });
+
+  // ===== 初期化 =====
+  // 配布リンク対応：?gas=…&name=… が付いていたら自動で設定に取り込む
+  const qp = new URLSearchParams(location.search);
+  if (qp.get('gas'))  store.set(LS.gas,  qp.get('gas').trim());
+  if (qp.get('name')) store.set(LS.name, qp.get('name').trim());
+
+  renderHome();
+  sendUnsent();
+  // 日付が変わったまま開きっぱなしのとき、もどってきたら表示を更新
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !session && $('homeView').classList.contains('on')) renderHome();
+  });
+})();
+</script>
+</body>
+</html>
