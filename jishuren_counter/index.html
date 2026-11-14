@@ -161,15 +161,34 @@
     width:100%;background:var(--board-deep);border:1px solid var(--board-line);
     border-radius:8px;padding:10px;color:var(--chalk);font-size:16px;
   }
-  .mrow{display:grid;grid-template-columns:1fr 76px 76px;gap:6px;align-items:center;margin-bottom:6px;font-size:13px}
-  .mrow.head{font-size:10px;color:var(--mute);margin-bottom:2px}
-  .mrow input{padding:8px;text-align:center}
-  .days{display:flex;gap:4px;margin:0 0 14px}
-  .days button{
-    flex:1;padding:7px 0;border-radius:6px;font-size:12px;
-    border:1px solid var(--board-line);background:var(--board-deep);color:#56635b;
+  .dlg-head{
+    position:sticky;top:-18px;z-index:1;margin:-18px -18px 6px;padding:12px 18px;
+    background:var(--board);border-bottom:1px solid var(--board-line);
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
   }
-  .days button[aria-pressed="true"]{background:#243530;color:var(--chalk);border-color:var(--grass)}
+  .dlg-head h2{margin:0}
+  .close-top{background:#243530;border:none;border-radius:8px;padding:9px 12px;color:var(--chalk);font-size:13px;white-space:nowrap}
+  /* 種目の編集カード（タップで開く） */
+  .ed{border:1px solid var(--board-line);border-radius:10px;background:var(--board-deep);margin-bottom:8px}
+  .ed summary{list-style:none;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:12px;font-size:14px}
+  .ed summary::-webkit-details-marker{display:none}
+  .ed .sname{font-weight:700;overflow-wrap:anywhere}
+  .ed .ssum{font-size:11px;color:var(--mute);white-space:nowrap}
+  .ed .ssum::after{content:"　編集";color:var(--lamp)}
+  .ed[open] .ssum::after{content:"　とじる"}
+  .ed .body{padding:0 12px 12px;border-top:1px solid var(--board-line)}
+  .ed input{background:var(--board)}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .grid3 input{text-align:center;padding:10px 4px}
+  .days,.seg{display:flex;gap:4px}
+  .days button,.seg button{
+    flex:1;padding:8px 0;border-radius:6px;font-size:12px;
+    border:1px solid var(--board-line);background:var(--board);color:#56635b;
+  }
+  .days button[aria-pressed="true"],.seg button[aria-pressed="true"]{background:#243530;color:var(--chalk);border-color:var(--grass)}
+  .ed .del{margin-top:14px;width:100%;background:none;border:1px solid var(--clay);border-radius:8px;padding:9px;color:var(--clay);font-size:13px}
+  .add{width:100%;background:none;border:1px dashed var(--mute);border-radius:10px;padding:12px;color:var(--chalk);font-size:14px}
+  .empty{color:var(--mute);font-size:13px;text-align:center;padding:30px 0}
   dialog .close{margin-top:16px;width:100%;background:#243530;border:none;
     border-radius:10px;padding:12px;color:var(--chalk);font-size:14px}
   .hist{font-size:12px;color:var(--mute);max-height:26vh;overflow-y:auto}
@@ -249,15 +268,18 @@
 </section>
 
 <dialog id="settingsDlg">
-  <h2>設定（おうちの人用）</h2>
+  <div class="dlg-head">
+    <h2>設定（おうちの人用）</h2>
+    <button class="close-top" id="closeTop">保存して閉じる</button>
+  </div>
   <label for="nickName">ニックネーム（チームで使うとき）</label>
   <input id="nickName" type="text" placeholder="例：たろう">
   <label for="gasUrl">記録送信先URL（GASウェブアプリ）</label>
   <input id="gasUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec">
 
-  <h3>メニュー（1日の目標・カウントの最短間隔・やる曜日）</h3>
-  <div class="mrow head"><span>種目</span><span style="text-align:center">目標</span><span style="text-align:center">間隔（秒）</span></div>
+  <h3>メニュー（種目をタップして編集）</h3>
   <div id="menuEdit"></div>
+  <button class="add" id="addItem" type="button">＋ 種目を追加</button>
 
   <h3>さいきんの記録</h3>
   <div class="hist" id="histList"></div>
@@ -271,7 +293,8 @@
   // ===== メニュー定義 =====
   // mode: 'voice' = 声で「いち、に…」と数える ／ 'tap' = 1本ごとにボタンを押す
   // intv: カウントの最短間隔（秒）。これより速い声・タップは無効（ズル防止）
-  // ※ 種目を増やす・変えるときはここを直す。目標・間隔・やる曜日は設定画面から変えられる
+  // ※ ここは「はじめて開いたときの初期メニュー」。名前・目標・数え方・曜日の変更や、
+  //    種目の追加・削除は設定画面からできる（保存後は端末内のメニューが優先される）
   //    やる曜日（days）は [日,月,火,水,木,金,土] の順で 1=やる / 0=休み。初期値は毎日
   const DEFAULT_MENU = [
     { id:'fukkin', name:'腹筋',         unit:'回', goal:30,  mode:'voice', intv:1.2 },
@@ -286,7 +309,7 @@
   // 素振りカウンター（sb_〜）と同じサイトに置いても混ざらないよう、jr_ で始める
   const LS = {
     day:  d => 'jr_day_' + d,   // その日の種目別合計 {id: 回数}
-    menu: 'jr_menu',            // 目標・間隔・曜日の上書き {id: {goal, intv, days}}
+    menu: 'jr_menu',            // メニュー全体 [{id,name,unit,goal,mode,intv,days}]（旧形式 {id:{goal,intv,days}} も読める）
     hist: 'jr_history',         // セッション履歴（直近200件）
     gas:  'jr_gas_url',
     name: 'jr_name',
@@ -303,13 +326,24 @@
   const todayKey = () => dateKey(new Date());
   const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+  // 保存されたメニューの欠けや不正な値を補う
+  function normItem(m) {
+    const g = parseInt(m.goal, 10), iv = parseFloat(m.intv);
+    return {
+      id: String(m.id),
+      name: String(m.name || '').trim() || '種目',
+      unit: String(m.unit || '').trim() || '回',
+      goal: g > 0 ? g : 10,
+      mode: m.mode === 'tap' ? 'tap' : 'voice',
+      intv: iv >= 0.5 ? iv : 1.2,
+      days: Array.isArray(m.days) && m.days.length === 7 ? m.days.map(x => x ? 1 : 0) : [1,1,1,1,1,1,1],
+    };
+  }
   function getMenu() {
-    const ov = store.json(LS.menu, {});
-    return DEFAULT_MENU.map(m => {
-      const x = Object.assign({ days: [1,1,1,1,1,1,1] }, m, ov[m.id] || {});
-      if (!Array.isArray(x.days) || x.days.length !== 7) x.days = [1,1,1,1,1,1,1];
-      return x;
-    });
+    const raw = store.json(LS.menu, null);
+    if (Array.isArray(raw)) return raw.map(normItem);
+    const ov = raw || {};   // 旧形式（初期メニューへの上書き）
+    return DEFAULT_MENU.map(m => normItem(Object.assign({}, m, ov[m.id] || {})));
   }
   const dayTotals = d => store.json(LS.day(d), {});
   const dueOn = (m, dt) => !!m.days[dt.getDay()];   // その日が「やる曜日」か
@@ -350,7 +384,8 @@
         '<span class="nums dot">' + v + '<small> / ' + m.goal + m.unit + (v >= m.goal ? ' 済' : '') + '</small></span>' +
         '<span class="bar"><i style="width:' + pct + '%"></i></span></button>';
     };
-    $('menu').innerHTML = menu.filter(m => dueOn(m, n)).map(row).join('') + menu.filter(m => !dueOn(m, n)).map(row).join('');
+    $('menu').innerHTML = (menu.filter(m => dueOn(m, n)).map(row).join('') + menu.filter(m => !dueOn(m, n)).map(row).join(''))
+      || '<div class="empty">種目がありません。「設定」から追加してください</div>';
 
     // この1週間（きょうを右端に、その日やる種目をいくつ終えたか）
     let html = '';
@@ -370,7 +405,7 @@
   }
 
   // ===== カウント画面の表示 =====
-  const idleText = () => item.mode === 'voice' ? '「スタート」を押して、数えながらやろう' : '「スタート」を押してから走ろう';
+  const idleText = () => item.mode === 'voice' ? '「スタート」を押して、数えながらやろう' : '「スタート」を押してからはじめよう';
 
   function openItem(id) {
     item = getMenu().find(m => m.id === id);
@@ -379,7 +414,7 @@
     $('countView').classList.toggle('tap-mode', item.mode === 'tap');
     $('note').textContent = item.mode === 'voice'
       ? '声で「いち、に、さん…」と数える／「まちがい」で1つもどる'
-      : '1本走るたびに大きいボタンを押す／−1で1つもどる';
+      : '1' + item.unit + 'おわるたびに大きいボタンを押す／−1で1つもどる';
     resetUI();
     refreshTop();
     show('count');
@@ -524,8 +559,8 @@
       $('statusText').textContent = '数えながらやろう！';
       startRecognition();
     } else {
-      $('startBtn').textContent = '1本 おわった！';
-      $('statusText').textContent = '走りおわったらボタンを押そう';
+      $('startBtn').textContent = '1' + item.unit + ' おわった！';
+      $('statusText').textContent = '1' + item.unit + 'おわったらボタンを押そう';
     }
     acquireWakeLock();
     refreshTop();
@@ -557,7 +592,7 @@
     session.lastCountAt = now;
     session.manual++;
     setCount(true);
-    if (item.mode === 'tap') $('statusText').textContent = session.manual + '本目 OK！';
+    if (item.mode === 'tap') $('statusText').textContent = session.manual + item.unit + '目 OK！';
   }
 
   async function finishSession() {
@@ -696,49 +731,113 @@
   });
 
   // ===== 設定ダイアログ =====
+  const WD = '日月火水木金土';
+  const daysText = days => days.every(x => x) ? '毎日' : (days.map((x, i) => x ? WD[i] : '').join('') || '休み');
+  const sumText = m => m.goal + m.unit + '・' + (m.mode === 'voice' ? '声' : 'タップ') + '・' + daysText(m.days);
+
+  // 種目1つぶんの編集カード
+  function editorHTML(m, open) {
+    const id = esc(m.id);
+    return '<details class="ed" data-id="' + id + '"' + (open ? ' open' : '') + '>' +
+      '<summary><span class="sname">' + esc(m.name) + '</span><span class="ssum">' + esc(sumText(m)) + '</span></summary>' +
+      '<div class="body">' +
+      '<label for="name_' + id + '">名前</label>' +
+      '<input id="name_' + id + '" class="f-name" type="text" maxlength="20" value="' + esc(m.name) + '">' +
+      '<div class="grid3">' +
+        '<div><label for="goal_' + id + '">1日の目標</label><input id="goal_' + id + '" class="f-goal" type="number" inputmode="numeric" min="1" value="' + m.goal + '"></div>' +
+        '<div><label for="unit_' + id + '">単位</label><input id="unit_' + id + '" class="f-unit" type="text" maxlength="4" value="' + esc(m.unit) + '"></div>' +
+        '<div><label for="intv_' + id + '">最短間隔(秒)</label><input id="intv_' + id + '" class="f-intv" type="number" inputmode="decimal" step="0.1" min="0.5" value="' + m.intv + '"></div>' +
+      '</div>' +
+      '<label>数え方</label>' +
+      '<div class="seg" role="group" aria-label="数え方">' +
+        '<button type="button" data-v="voice" aria-pressed="' + (m.mode === 'voice') + '">声で数える</button>' +
+        '<button type="button" data-v="tap" aria-pressed="' + (m.mode === 'tap') + '">タップ</button>' +
+      '</div>' +
+      '<label>やる曜日</label>' +
+      '<div class="days" role="group" aria-label="やる曜日">' +
+        [0,1,2,3,4,5,6].map(i => '<button type="button" data-d="' + i + '" aria-pressed="' + (m.days[i] ? 'true' : 'false') + '">' + WD[i] + '</button>').join('') +
+      '</div>' +
+      '<button type="button" class="del">この種目を削除</button>' +
+      '</div></details>';
+  }
+
+  // 編集カードの入力内容を読み取る
+  function readEditor(el) {
+    return normItem({
+      id: el.dataset.id,
+      name: el.querySelector('.f-name').value,
+      unit: el.querySelector('.f-unit').value,
+      goal: el.querySelector('.f-goal').value,
+      intv: el.querySelector('.f-intv').value,
+      mode: el.querySelector('.seg [aria-pressed="true"]').dataset.v,
+      days: [0,1,2,3,4,5,6].map(i => el.querySelector('.days [data-d="' + i + '"]').getAttribute('aria-pressed') === 'true' ? 1 : 0),
+    });
+  }
+  function refreshSummary(el) {
+    const m = readEditor(el);
+    el.querySelector('.sname').textContent = m.name;
+    el.querySelector('.ssum').textContent = sumText(m);
+  }
+
   $('gearBtn').addEventListener('click', () => {
     $('nickName').value = store.get(LS.name, '');
     $('gasUrl').value = store.get(LS.gas, '');
-    $('menuEdit').innerHTML = getMenu().map(m =>
-      '<div class="mrow"><span>' + esc(m.name) + '（' + (m.mode === 'voice' ? '声' : 'タップ') + '）</span>' +
-      '<input id="goal_' + m.id + '" type="number" inputmode="numeric" min="1" value="' + m.goal + '" aria-label="' + esc(m.name) + 'の目標">' +
-      '<input id="intv_' + m.id + '" type="number" inputmode="decimal" step="0.1" min="0.5" value="' + m.intv + '" aria-label="' + esc(m.name) + 'の最短間隔">' +
-      '</div>' +
-      '<div class="days" data-id="' + m.id + '" role="group" aria-label="' + esc(m.name) + 'をやる曜日">' +
-      [0,1,2,3,4,5,6].map(i => '<button type="button" data-d="' + i + '" aria-pressed="' + (m.days[i] ? 'true' : 'false') + '">' + '日月火水木金土'[i] + '</button>').join('') +
-      '</div>').join('');
+    $('menuEdit').innerHTML = getMenu().map(m => editorHTML(m, false)).join('');
+    const hasGas = !!store.get(LS.gas, '');
     const hist = store.json(LS.hist, []).slice(-30).reverse();
     $('histList').innerHTML = hist.map(r =>
-      '<div class="' + (r.sent || !store.get(LS.gas, '') ? '' : 'unsent') + '">' +
+      '<div class="' + (r.sent || !hasGas ? '' : 'unsent') + '">' +
       esc(r.date.slice(5)) + ' ' + esc(r.start.slice(0, 5)) + '　' + esc(r.menu) + ' ' +
       (r.type === 'リセット' ? '0に戻す（' + r.total + '）' : r.total + '（' + Math.floor(r.seconds / 60) + '分' + (r.seconds % 60) + '秒）') +
-      (r.sent || !store.get(LS.gas, '') ? '' : '　未送信') + '</div>'
+      (r.sent || !hasGas ? '' : '　未送信') + '</div>'
     ).join('') || '<div>まだ記録がありません</div>';
     $('settingsDlg').showModal();
+    $('settingsDlg').scrollTop = 0;
   });
 
-  // やる曜日のボタン：押すたびに やる／休み を切り替え
+  // 編集カード内のボタン：数え方の切り替え／曜日のオンオフ／削除
   $('menuEdit').addEventListener('click', e => {
-    const b = e.target.closest('.days button');
-    if (b) b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+    const ed = e.target.closest('.ed');
+    if (!ed) return;
+    const seg = e.target.closest('.seg button');
+    const day = e.target.closest('.days button');
+    if (seg) {
+      ed.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', b === seg ? 'true' : 'false'));
+      refreshSummary(ed);
+    } else if (day) {
+      day.setAttribute('aria-pressed', day.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+      refreshSummary(ed);
+    } else if (e.target.closest('.del')) {
+      const nm = ed.querySelector('.f-name').value.trim() || 'この種目';
+      // これまでの記録（履歴・送信済みの行）は消えない。メニューから外すだけ
+      if (confirm('「' + nm + '」をメニューから削除します。いいですか？')) ed.remove();
+    }
+  });
+  $('menuEdit').addEventListener('input', e => {
+    const ed = e.target.closest('.ed');
+    if (ed) refreshSummary(ed);
   });
 
-  $('closeDlg').addEventListener('click', () => {
+  $('addItem').addEventListener('click', () => {
+    const m = normItem({ id: 'c' + Date.now().toString(36), name: '新しい種目', unit: '回', goal: 10, mode: 'tap', intv: 1.2 });
+    $('menuEdit').insertAdjacentHTML('beforeend', editorHTML(m, true));
+    const ed = $('menuEdit').lastElementChild;
+    ed.scrollIntoView({ block: 'center' });
+    const f = ed.querySelector('.f-name');
+    f.focus(); f.select();
+  });
+
+  function saveSettings() {
     store.set(LS.name, $('nickName').value.trim());
     store.set(LS.gas, $('gasUrl').value.trim());
-    const ov = {};
-    DEFAULT_MENU.forEach(m => {
-      const g = parseInt($('goal_' + m.id).value, 10);
-      const iv = parseFloat($('intv_' + m.id).value);
-      const days = [0,1,2,3,4,5,6].map(i =>
-        $('menuEdit').querySelector('.days[data-id="' + m.id + '"] [data-d="' + i + '"]').getAttribute('aria-pressed') === 'true' ? 1 : 0);
-      ov[m.id] = { goal: g > 0 ? g : m.goal, intv: iv >= 0.5 ? iv : m.intv, days: days };
-    });
-    store.set(LS.menu, JSON.stringify(ov));
+    const list = Array.from($('menuEdit').querySelectorAll('.ed')).map(readEditor);
+    store.set(LS.menu, JSON.stringify(list));
     $('settingsDlg').close();
     renderHome();
     sendUnsent();
-  });
+  }
+  $('closeDlg').addEventListener('click', saveSettings);
+  $('closeTop').addEventListener('click', saveSettings);
 
   // ===== 初期化 =====
   // 配布リンク対応：?gas=…&name=… が付いていたら自動で設定に取り込む
