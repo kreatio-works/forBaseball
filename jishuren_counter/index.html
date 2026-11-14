@@ -86,6 +86,7 @@
   .item.done .nums{color:var(--grass-lit)}
   .item.done .bar{background:#16352a}
   .item.done .bar i{background:var(--grass-lit)}
+  .item.rest{opacity:.5}
   .item:focus-visible,.gear:focus-visible,button:focus-visible{outline:2px solid var(--lamp);outline-offset:2px}
   .foot-note{font-size:11px;color:var(--mute);text-align:center;padding:4px 16px calc(16px + env(safe-area-inset-bottom))}
 
@@ -140,7 +141,7 @@
     width:100%;background:none;border:2px solid var(--board-line);
     border-radius:12px;padding:13px;font-size:15px;color:var(--chalk);
   }
-  #discardBtn{
+  #discardBtn,#resetBtn{
     width:100%;background:none;border:none;margin-top:10px;
     font-size:13px;color:var(--mute);text-decoration:underline;
   }
@@ -163,6 +164,12 @@
   .mrow{display:grid;grid-template-columns:1fr 76px 76px;gap:6px;align-items:center;margin-bottom:6px;font-size:13px}
   .mrow.head{font-size:10px;color:var(--mute);margin-bottom:2px}
   .mrow input{padding:8px;text-align:center}
+  .days{display:flex;gap:4px;margin:0 0 14px}
+  .days button{
+    flex:1;padding:7px 0;border-radius:6px;font-size:12px;
+    border:1px solid var(--board-line);background:var(--board-deep);color:#56635b;
+  }
+  .days button[aria-pressed="true"]{background:#243530;color:var(--chalk);border-color:var(--grass)}
   dialog .close{margin-top:16px;width:100%;background:#243530;border:none;
     border-radius:10px;padding:12px;color:var(--chalk);font-size:14px}
   .hist{font-size:12px;color:var(--mute);max-height:26vh;overflow-y:auto}
@@ -235,7 +242,8 @@
       <button class="big" id="minusBtn" disabled>−1</button>
     </div>
     <button id="finishBtn" disabled>終了して記録する</button>
-    <button id="discardBtn" disabled>記録せずにやり直す</button>
+    <button id="discardBtn" hidden>記録せずにやり直す</button>
+    <button id="resetBtn" hidden>きょうの記録を0回に戻す</button>
     <div class="note" id="note"></div>
   </footer>
 </section>
@@ -247,7 +255,7 @@
   <label for="gasUrl">記録送信先URL（GASウェブアプリ）</label>
   <input id="gasUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec">
 
-  <h3>メニュー（1日の目標と、カウントの最短間隔）</h3>
+  <h3>メニュー（1日の目標・カウントの最短間隔・やる曜日）</h3>
   <div class="mrow head"><span>種目</span><span style="text-align:center">目標</span><span style="text-align:center">間隔（秒）</span></div>
   <div id="menuEdit"></div>
 
@@ -263,7 +271,8 @@
   // ===== メニュー定義 =====
   // mode: 'voice' = 声で「いち、に…」と数える ／ 'tap' = 1本ごとにボタンを押す
   // intv: カウントの最短間隔（秒）。これより速い声・タップは無効（ズル防止）
-  // ※ 種目を増やす・変えるときはここを直す。目標と間隔は設定画面からも変えられる
+  // ※ 種目を増やす・変えるときはここを直す。目標・間隔・やる曜日は設定画面から変えられる
+  //    やる曜日（days）は [日,月,火,水,木,金,土] の順で 1=やる / 0=休み。初期値は毎日
   const DEFAULT_MENU = [
     { id:'fukkin', name:'腹筋',         unit:'回', goal:30,  mode:'voice', intv:1.2 },
     { id:'haikin', name:'背筋',         unit:'回', goal:30,  mode:'voice', intv:1.2 },
@@ -277,7 +286,7 @@
   // 素振りカウンター（sb_〜）と同じサイトに置いても混ざらないよう、jr_ で始める
   const LS = {
     day:  d => 'jr_day_' + d,   // その日の種目別合計 {id: 回数}
-    menu: 'jr_menu',            // 目標・間隔の上書き {id: {goal, intv}}
+    menu: 'jr_menu',            // 目標・間隔・曜日の上書き {id: {goal, intv, days}}
     hist: 'jr_history',         // セッション履歴（直近200件）
     gas:  'jr_gas_url',
     name: 'jr_name',
@@ -296,10 +305,20 @@
 
   function getMenu() {
     const ov = store.json(LS.menu, {});
-    return DEFAULT_MENU.map(m => Object.assign({}, m, ov[m.id] || {}));
+    return DEFAULT_MENU.map(m => {
+      const x = Object.assign({ days: [1,1,1,1,1,1,1] }, m, ov[m.id] || {});
+      if (!Array.isArray(x.days) || x.days.length !== 7) x.days = [1,1,1,1,1,1,1];
+      return x;
+    });
   }
   const dayTotals = d => store.json(LS.day(d), {});
-  const doneCountOf = (d, menu) => { const t = dayTotals(d); return menu.filter(m => (t[m.id] || 0) >= m.goal).length; };
+  const dueOn = (m, dt) => !!m.days[dt.getDay()];   // その日が「やる曜日」か
+  // その日の「やる種目の数」と「そのうち目標に届いた数」
+  function dayStat(dt, menu) {
+    const t = dayTotals(dateKey(dt));
+    const due = menu.filter(m => dueOn(m, dt));
+    return { due: due.length, done: due.filter(m => (t[m.id] || 0) >= m.goal).length };
+  }
 
   // ===== 状態 =====
   let item = null;      // いま開いている種目
@@ -316,27 +335,30 @@
     const n = new Date();
     $('dateLabel').textContent = n.getFullYear() + '/' + (n.getMonth() + 1) + '/' + n.getDate() + '（' + '日月火水木金土'[n.getDay()] + '）';
 
-    const done = doneCountOf(d, menu);
-    $('doneCount').textContent = done;
-    $('itemCount').textContent = menu.length;
-    $('homeView').classList.toggle('all-done', done === menu.length);
+    const st = dayStat(n, menu);
+    $('doneCount').textContent = st.done;
+    $('itemCount').textContent = st.due;
+    $('homeView').classList.toggle('all-done', st.due > 0 && st.done === st.due);
 
-    $('menu').innerHTML = menu.map(m => {
+    // きょうやる種目を上に、お休みの種目は下にうすく表示（お休みの日でも記録はできる）
+    const row = m => {
       const v = t[m.id] || 0;
+      const due = dueOn(m, n);
       const pct = Math.min(100, Math.round(v / m.goal * 100));
-      return '<button class="item' + (v >= m.goal ? ' done' : '') + '" data-id="' + m.id + '">' +
-        '<span class="name">' + esc(m.name) + '<span class="tag">' + (m.mode === 'voice' ? '声でカウント' : 'タップ') + '</span></span>' +
+      return '<button class="item' + (v >= m.goal ? ' done' : '') + (due ? '' : ' rest') + '" data-id="' + m.id + '">' +
+        '<span class="name">' + esc(m.name) + '<span class="tag">' + (due ? (m.mode === 'voice' ? '声でカウント' : 'タップ') : 'きょうはお休み') + '</span></span>' +
         '<span class="nums dot">' + v + '<small> / ' + m.goal + m.unit + (v >= m.goal ? ' 済' : '') + '</small></span>' +
         '<span class="bar"><i style="width:' + pct + '%"></i></span></button>';
-    }).join('');
+    };
+    $('menu').innerHTML = menu.filter(m => dueOn(m, n)).map(row).join('') + menu.filter(m => !dueOn(m, n)).map(row).join('');
 
-    // この1週間（きょうを右端に、種目をいくつ終えたか）
+    // この1週間（きょうを右端に、その日やる種目をいくつ終えたか）
     let html = '';
     for (let i = 6; i >= 0; i--) {
       const dt = new Date(n.getFullYear(), n.getMonth(), n.getDate() - i);
-      const c = doneCountOf(dateKey(dt), menu);
-      html += '<div class="d' + (c === menu.length ? ' full' : c > 0 ? ' some' : '') + (i === 0 ? ' today' : '') + '">' +
-        '<div class="w">' + '日月火水木金土'[dt.getDay()] + '</div><div class="n dot">' + c + '</div></div>';
+      const c = dayStat(dt, menu);
+      html += '<div class="d' + (c.due > 0 && c.done === c.due ? ' full' : c.done > 0 ? ' some' : '') + (i === 0 ? ' today' : '') + '">' +
+        '<div class="w">' + '日月火水木金土'[dt.getDay()] + '</div><div class="n dot">' + c.done + '</div></div>';
     }
     $('week').innerHTML = html;
   }
@@ -370,6 +392,9 @@
     $('todayTotal').textContent = live;
     $('remain').textContent = Math.max(0, item.goal - live);
     $('countView').classList.toggle('goal-done', live >= item.goal);
+    // カウント中は「やり直す」、止まっているときは「0回に戻す」（記録があるときだけ）を出す
+    $('discardBtn').hidden = !session;
+    $('resetBtn').hidden = !!session || total === 0;
   }
 
   function setCount(flash) {
@@ -492,7 +517,6 @@
     $('count').textContent = '0';
     $('minusBtn').disabled = false;
     $('finishBtn').disabled = false;
-    $('discardBtn').disabled = false;
     if (item.mode === 'voice') {
       $('startBtn').textContent = 'ストップ';
       $('startBtn').classList.add('stop');
@@ -593,7 +617,6 @@
     $('plusBtn').disabled = true;
     $('minusBtn').disabled = true;
     $('finishBtn').disabled = true;
-    $('discardBtn').disabled = true;
     $('count').textContent = '0';
     $('statusText').textContent = item ? idleText() : '';
     $('heard').textContent = '';
@@ -643,6 +666,27 @@
     if (confirm('この回のカウントを記録せずに消します。いいですか？')) { resetUI(); refreshTop(); }
   });
 
+  // きょうの記録を0回に戻す（おためしで数えたあと用）
+  // 履歴は消さず、マイナスの「リセット」行を足す ＝ スプレッドシート側の合計も0に合う
+  $('resetBtn').addEventListener('click', () => {
+    if (session) return;
+    const d = todayKey();
+    const t = dayTotals(d);
+    const prev = t[item.id] || 0;
+    if (prev === 0) return;
+    if (!confirm(item.name + 'のきょうの記録（' + prev + item.unit + '）を0に戻します。いいですか？')) return;
+    t[item.id] = 0;
+    store.set(LS.day(d), JSON.stringify(t));
+    const now = new Date().toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    const hist = store.json(LS.hist, []);
+    hist.push({ name: store.get(LS.name, ''), date: d, menu: item.name, type: 'リセット', start: now, end: now,
+                seconds: 0, voice: 0, manual: 0, total: -prev, goal: item.goal, sent: false });
+    store.set(LS.hist, JSON.stringify(hist.slice(-200)));
+    refreshTop();
+    $('statusText').textContent = '0回に戻しました';
+    sendUnsent();
+  });
+
   $('backBtn').addEventListener('click', () => {
     if (session && session.count + session.manual > 0 &&
         !confirm('まだ記録していません。記録せずにもどりますか？')) return;
@@ -659,15 +703,24 @@
       '<div class="mrow"><span>' + esc(m.name) + '（' + (m.mode === 'voice' ? '声' : 'タップ') + '）</span>' +
       '<input id="goal_' + m.id + '" type="number" inputmode="numeric" min="1" value="' + m.goal + '" aria-label="' + esc(m.name) + 'の目標">' +
       '<input id="intv_' + m.id + '" type="number" inputmode="decimal" step="0.1" min="0.5" value="' + m.intv + '" aria-label="' + esc(m.name) + 'の最短間隔">' +
+      '</div>' +
+      '<div class="days" data-id="' + m.id + '" role="group" aria-label="' + esc(m.name) + 'をやる曜日">' +
+      [0,1,2,3,4,5,6].map(i => '<button type="button" data-d="' + i + '" aria-pressed="' + (m.days[i] ? 'true' : 'false') + '">' + '日月火水木金土'[i] + '</button>').join('') +
       '</div>').join('');
     const hist = store.json(LS.hist, []).slice(-30).reverse();
     $('histList').innerHTML = hist.map(r =>
       '<div class="' + (r.sent || !store.get(LS.gas, '') ? '' : 'unsent') + '">' +
-      esc(r.date.slice(5)) + ' ' + esc(r.start.slice(0, 5)) + '　' + esc(r.menu) + ' ' + r.total +
-      '（' + Math.floor(r.seconds / 60) + '分' + (r.seconds % 60) + '秒）' +
+      esc(r.date.slice(5)) + ' ' + esc(r.start.slice(0, 5)) + '　' + esc(r.menu) + ' ' +
+      (r.type === 'リセット' ? '0に戻す（' + r.total + '）' : r.total + '（' + Math.floor(r.seconds / 60) + '分' + (r.seconds % 60) + '秒）') +
       (r.sent || !store.get(LS.gas, '') ? '' : '　未送信') + '</div>'
     ).join('') || '<div>まだ記録がありません</div>';
     $('settingsDlg').showModal();
+  });
+
+  // やる曜日のボタン：押すたびに やる／休み を切り替え
+  $('menuEdit').addEventListener('click', e => {
+    const b = e.target.closest('.days button');
+    if (b) b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
   });
 
   $('closeDlg').addEventListener('click', () => {
@@ -677,7 +730,9 @@
     DEFAULT_MENU.forEach(m => {
       const g = parseInt($('goal_' + m.id).value, 10);
       const iv = parseFloat($('intv_' + m.id).value);
-      ov[m.id] = { goal: g > 0 ? g : m.goal, intv: iv >= 0.5 ? iv : m.intv };
+      const days = [0,1,2,3,4,5,6].map(i =>
+        $('menuEdit').querySelector('.days[data-id="' + m.id + '"] [data-d="' + i + '"]').getAttribute('aria-pressed') === 'true' ? 1 : 0);
+      ov[m.id] = { goal: g > 0 ? g : m.goal, intv: iv >= 0.5 ? iv : m.intv, days: days };
     });
     store.set(LS.menu, JSON.stringify(ov));
     $('settingsDlg').close();
