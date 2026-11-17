@@ -88,6 +88,45 @@
   .item.done .bar i{background:var(--grass-lit)}
   .item.rest{opacity:.5}
   .item:focus-visible,.gear:focus-visible,button:focus-visible{outline:2px solid var(--lamp);outline-offset:2px}
+  input{user-select:text;-webkit-user-select:text}
+  #weekBtn{background:none;border:none;color:inherit;text-align:right;padding:0}
+  #weekBtn .lbl::after{content:" ›";color:var(--lamp)}
+
+  /* きょうのひとこと */
+  .memo{padding:4px 16px 10px}
+  .memo label{display:block;font-size:10px;color:var(--mute);letter-spacing:.2em;margin-bottom:6px}
+  .memo-row{display:flex;gap:8px}
+  .memo input{
+    flex:1;min-width:0;background:var(--board-deep);border:2px solid var(--board-line);border-radius:10px;
+    padding:11px 12px;color:var(--chalk);font-size:16px;font-family:inherit;
+  }
+  .memo button{background:#243530;border:none;border-radius:10px;padding:0 16px;color:var(--chalk);font-size:14px;font-weight:700}
+  #memoMsg{font-size:11px;color:var(--grass-lit);min-height:16px;margin-top:4px}
+
+  /* 1週間の記録 */
+  .wk-nav{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:2px solid var(--board-line)}
+  .wk-nav .range{font-size:15px;color:var(--lamp);text-align:center}
+  .wk-nav .sub{font-size:11px;color:var(--mute);text-align:center;margin-top:2px}
+  .wk-list{flex:1;padding:12px 16px calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px}
+  .wk-day{background:var(--board-deep);border:2px solid var(--board-line);border-radius:12px;padding:10px 12px}
+  .wk-day.full{border-color:var(--grass)}
+  .wk-day.today{outline:1px solid var(--mute);outline-offset:2px}
+  .wk-day.future{opacity:.4}
+  .wk-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .wk-date{font-size:15px}
+  .wk-stat{font-size:15px;color:var(--lamp)}
+  .wk-day.full .wk-stat{color:var(--grass-lit)}
+  .wk-items{display:flex;flex-wrap:wrap;gap:4px 6px;margin-top:8px}
+  .chip{font-size:12px;border:1px solid var(--board-line);border-radius:6px;padding:3px 7px;color:var(--chalk);white-space:nowrap}
+  .chip b{font-weight:400;color:var(--lamp);font-family:"DotGothic16",monospace;margin-left:4px}
+  .chip.ok{border-color:var(--grass)}
+  .chip.ok b{color:var(--grass-lit)}
+  .chip.zero{color:var(--mute)}
+  .chip.zero b{color:var(--lamp-dim)}
+  .wk-rest{font-size:12px;color:var(--mute);margin-top:6px}
+  .wk-memo{font-size:13px;color:var(--chalk);margin-top:8px;padding-top:8px;border-top:1px dashed var(--board-line);overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
+  .wk-memo::before{content:"ひとこと　";font-size:10px;color:var(--mute);letter-spacing:.1em}
+
   .foot-note{font-size:11px;color:var(--mute);text-align:center;padding:4px 16px calc(16px + env(safe-area-inset-bottom))}
 
   /* ===== カウント画面 ===== */
@@ -217,14 +256,40 @@
       <div class="lbl dot">おわった種目</div>
       <div class="big dot"><span id="doneCount">0</span><small> / <span id="itemCount">6</span></small></div>
     </div>
-    <div>
-      <div class="lbl dot" style="text-align:right">この1週間</div>
+    <button id="weekBtn" type="button" aria-label="1週間の記録を見る">
+      <div class="lbl dot">この1週間</div>
       <div class="week" id="week"></div>
-    </div>
+    </button>
   </div>
 
   <div class="menu" id="menu"></div>
+  <div class="memo">
+    <label class="dot" for="memoInput">きょうのひとこと</label>
+    <div class="memo-row">
+      <input id="memoInput" type="text" maxlength="60" placeholder="例：バッティングセンターで100本" autocomplete="off">
+      <button id="memoBtn" type="button">記録</button>
+    </div>
+    <div id="memoMsg"></div>
+  </div>
   <div class="foot-note">種目をえらんでスタート。とちゅうで分けてやってもOK</div>
+</section>
+
+<!-- ===================== 1週間の記録 ===================== -->
+<section class="view" id="weekView">
+  <header>
+    <button class="gear" id="weekBack">← もどる</button>
+    <div class="title dot">1週間の記録</div>
+    <span style="width:64px"></span>
+  </header>
+  <div class="wk-nav">
+    <button class="gear" id="weekPrev">‹ 前の週</button>
+    <div>
+      <div class="range dot" id="weekRange"></div>
+      <div class="sub" id="weekSub"></div>
+    </div>
+    <button class="gear" id="weekNext">次の週 ›</button>
+  </div>
+  <div class="wk-list" id="weekList"></div>
 </section>
 
 <!-- ===================== カウント画面 ===================== -->
@@ -309,6 +374,7 @@
   // 素振りカウンター（sb_〜）と同じサイトに置いても混ざらないよう、jr_ で始める
   const LS = {
     day:  d => 'jr_day_' + d,   // その日の種目別合計 {id: 回数}
+    memo: d => 'jr_memo_' + d,  // その日のひとこと（文字列）
     menu: 'jr_menu',            // メニュー全体 [{id,name,unit,goal,mode,intv,days}]（旧形式 {id:{goal,intv,days}} も読める）
     hist: 'jr_history',         // セッション履歴（直近200件）
     gas:  'jr_gas_url',
@@ -321,6 +387,7 @@
   };
 
   const $ = id => document.getElementById(id);
+  const WD = '日月火水木金土';
   const pad = n => String(n).padStart(2, '0');
   const dateKey = dt => dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate());
   const todayKey = () => dateKey(new Date());
@@ -396,11 +463,15 @@
         '<div class="w">' + '日月火水木金土'[dt.getDay()] + '</div><div class="n dot">' + c.done + '</div></div>';
     }
     $('week').innerHTML = html;
+
+    // きょうのひとこと（入力中は上書きしない）
+    if (document.activeElement !== $('memoInput')) $('memoInput').value = store.get(LS.memo(d), '');
   }
 
   function show(view) {
     $('homeView').classList.toggle('on', view === 'home');
     $('countView').classList.toggle('on', view === 'count');
+    $('weekView').classList.toggle('on', view === 'week');
     window.scrollTo(0, 0);
   }
 
@@ -680,6 +751,72 @@
     sending = false;
   }
 
+  // ===== きょうのひとこと =====
+  // 端末に保存し、送信先があればスプレッドシートにも「メモ」の行として送る
+  // （同じ日に書き直すと行が増える。あとから届いた行が最新）
+  function saveMemo() {
+    const d = todayKey();
+    const text = $('memoInput').value.trim();
+    if (text === store.get(LS.memo(d), '')) { $('memoMsg').textContent = text ? '記録ずみです' : ''; return; }
+    store.set(LS.memo(d), text);
+    const now = new Date().toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    const hist = store.json(LS.hist, []);
+    hist.push({ name: store.get(LS.name, ''), date: d, menu: 'ひとこと', type: 'メモ', start: now, end: now,
+                seconds: 0, voice: 0, manual: 0, total: 0, goal: 0, memo: text, sent: false });
+    store.set(LS.hist, JSON.stringify(hist.slice(-200)));
+    $('memoMsg').textContent = text ? '記録しました' : 'ひとことを消しました';
+    $('memoInput').blur();
+    sendUnsent();
+  }
+  $('memoBtn').addEventListener('click', saveMemo);
+  $('memoInput').addEventListener('keydown', e => { if (e.key === 'Enter') saveMemo(); });
+  $('memoInput').addEventListener('input', () => { $('memoMsg').textContent = ''; });
+
+  // ===== 1週間の記録 =====
+  let weekOffset = 0;   // 0 = 今週、-1 = 先週 …（週は月曜はじまり）
+  function renderWeek() {
+    const menu = getMenu();
+    const n = new Date();
+    const today = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+    const mon = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7) + weekOffset * 7);
+    const md = dt => (dt.getMonth() + 1) + '/' + dt.getDate();
+    let html = '', fullDays = 0, dueDays = 0;
+
+    for (let i = 0; i < 7; i++) {
+      const dt = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i);
+      const key = dateKey(dt);
+      const future = dt > today;
+      const t = dayTotals(key);
+      const st = dayStat(dt, menu);
+      const memo = store.get(LS.memo(key), '');
+      const full = st.due > 0 && st.done === st.due;
+      if (!future && st.due > 0) { dueDays++; if (full) fullDays++; }
+
+      // その日やる種目と、お休みでも記録がある種目を出す
+      const chips = menu.filter(m => dueOn(m, dt) || (t[m.id] || 0) > 0).map(m => {
+        const v = t[m.id] || 0;
+        return '<span class="chip' + (v >= m.goal ? ' ok' : v === 0 ? ' zero' : '') + '">' + esc(m.name) +
+               '<b>' + v + '/' + m.goal + '</b></span>';
+      }).join('');
+
+      html += '<div class="wk-day' + (full ? ' full' : '') + (key === dateKey(today) ? ' today' : '') + (future ? ' future' : '') + '">' +
+        '<div class="wk-head"><span class="wk-date dot">' + md(dt) + '（' + WD[dt.getDay()] + '）</span>' +
+        (future || st.due === 0 ? '' : '<span class="wk-stat dot">' + st.done + ' / ' + st.due + (full ? ' 済' : '') + '</span>') + '</div>' +
+        (future ? '' : chips ? '<div class="wk-items">' + chips + '</div>' : '<div class="wk-rest">お休み</div>') +
+        (memo ? '<div class="wk-memo">' + esc(memo) + '</div>' : '') +
+        '</div>';
+    }
+    const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+    $('weekRange').textContent = md(mon) + ' 〜 ' + md(sun);
+    $('weekSub').textContent = (weekOffset === 0 ? '今週　' : '') + 'ぜんぶ達成 ' + fullDays + '日 / ' + dueDays + '日';
+    $('weekList').innerHTML = html;
+    $('weekNext').disabled = weekOffset >= 0;
+  }
+  $('weekBtn').addEventListener('click', () => { weekOffset = 0; renderWeek(); show('week'); });
+  $('weekBack').addEventListener('click', () => { renderHome(); show('home'); });
+  $('weekPrev').addEventListener('click', () => { weekOffset--; renderWeek(); window.scrollTo(0, 0); });
+  $('weekNext').addEventListener('click', () => { if (weekOffset < 0) { weekOffset++; renderWeek(); window.scrollTo(0, 0); } });
+
   // ===== イベント =====
   $('menu').addEventListener('click', e => {
     const b = e.target.closest('.item');
@@ -731,7 +868,6 @@
   });
 
   // ===== 設定ダイアログ =====
-  const WD = '日月火水木金土';
   const daysText = days => days.every(x => x) ? '毎日' : (days.map((x, i) => x ? WD[i] : '').join('') || '休み');
   const sumText = m => m.goal + m.unit + '・' + (m.mode === 'voice' ? '声' : 'タップ') + '・' + daysText(m.days);
 
@@ -788,7 +924,8 @@
     $('histList').innerHTML = hist.map(r =>
       '<div class="' + (r.sent || !hasGas ? '' : 'unsent') + '">' +
       esc(r.date.slice(5)) + ' ' + esc(r.start.slice(0, 5)) + '　' + esc(r.menu) + ' ' +
-      (r.type === 'リセット' ? '0に戻す（' + r.total + '）' : r.total + '（' + Math.floor(r.seconds / 60) + '分' + (r.seconds % 60) + '秒）') +
+      (r.type === 'メモ' ? '「' + esc(r.memo || '') + '」' :
+       r.type === 'リセット' ? '0に戻す（' + r.total + '）' : r.total + '（' + Math.floor(r.seconds / 60) + '分' + (r.seconds % 60) + '秒）') +
       (r.sent || !hasGas ? '' : '　未送信') + '</div>'
     ).join('') || '<div>まだ記録がありません</div>';
     $('settingsDlg').showModal();
