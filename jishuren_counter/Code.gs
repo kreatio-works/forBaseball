@@ -3,10 +3,12 @@
  *
  * - アプリから届いた記録を、記録シート（いちばん左のシート）に1行ずつ追加する
  * - 届くたびに「週間集計」シートを作り直す（選手ごと・日ごとの一覧。ひとこと付き）
+ * - 「設定」シートの合言葉が合っていれば、アプリの「みんなの記録」画面に記録を返す（コーチ・保護者用）
  *
  * 記録シートの列（A〜M）
  *   受信日時 / 名前 / 日付 / 種目 / 入力方式 / 開始 / 終了 / 所要秒 /
  *   音声カウント / 手動カウント / 合計 / 1日の目標 / ひとこと
+ *   ※ 入力方式が「メモ」の行はひとこと、「メニュー」の行はその日のメニュー（ひとこと列にJSON）
  *
  * コードを直したあとは「デプロイを管理 → 鉛筆 → 新バージョン → デプロイ」で更新する
  * （「新しいデプロイ」にするとURLが変わり、アプリ側の設定をやり直すことになる）
@@ -16,6 +18,9 @@ var SUMMARY_NAME = '週間集計';
 var HEADER = ['受信日時', '名前', '日付', '種目', '入力方式', '開始', '終了', '所要秒',
               '音声カウント', '手動カウント', '合計', '1日の目標', 'ひとこと'];
 var DONE_COLOR = '#d9ead3';   // 目標に届いたセルの色（うすい緑）
+var SETTINGS_NAME = '設定';   // B1 に合言葉を書くシート
+var VIEW_WEEKS = 12;          // 「みんなの記録」に返す期間（直近○週間）
+var MIN_PASS_LEN = 4;         // 合言葉の最低文字数
 
 function doPost(e) {
   var lock = LockService.getScriptLock();
@@ -23,6 +28,7 @@ function doPost(e) {
   try {
     var sheet = recordSheet_();
     ensureHeader_(sheet);
+    settingsSheet_();
 
     var d = JSON.parse(e.postData.contents);
     sheet.appendRow([
@@ -38,8 +44,76 @@ function doPost(e) {
   return ContentService.createTextOutput('ok');
 }
 
-function doGet() {
-  return ContentService.createTextOutput('自主練記録：受付OK');
+// GET：合言葉（key）つきなら記録をJSONで返す。なければ動作確認用の文字を返す
+// callback つきのときは JSONP（アプリ側で通常の読み込みに失敗したときの予備）
+function doGet(e) {
+  var p = (e && e.parameter) || {};
+  if (p.key === undefined) return ContentService.createTextOutput('自主練記録：受付OK');
+
+  var json = JSON.stringify(viewResponse_(String(p.key)));
+  if (p.callback && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(p.callback)) {
+    return ContentService.createTextOutput(p.callback + '(' + json + ');')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
+}
+
+// 合言葉を確かめて、合っていれば記録を返す
+function viewResponse_(key) {
+  var pass = String(settingsSheet_().getRange('B1').getValue() || '').trim();
+  if (pass.length < MIN_PASS_LEN) {
+    return { ok: false, error: '合言葉がまだ設定されていません（スプレッドシートの「設定」シートのB1に、' + MIN_PASS_LEN + '文字以上で入れてください）' };
+  }
+  // 総当たりよけ：まちがいが10分間に30回をこえたら、しばらく受け付けない
+  var cache = CacheService.getScriptCache();
+  var fails = Number(cache.get('viewFails')) || 0;
+  if (fails >= 30) return { ok: false, error: 'まちがいが続いたため、しばらく見られません。10分ほどあとでためしてください' };
+  if (key.trim() !== pass) {
+    cache.put('viewFails', String(fails + 1), 600);
+    return { ok: false, error: '合言葉がちがいます' };
+  }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var rec = recordSheet_();
+  var rows = rec.getLastRow() > 1
+    ? rec.getRange(2, 1, rec.getLastRow() - 1, HEADER.length).getValues() : [];
+  var tz = ss.getSpreadsheetTimeZone();
+  var from = new Date();
+  from.setDate(from.getDate() - VIEW_WEEKS * 7);
+  return { ok: true, players: buildView_(rows, tz, Utilities.formatDate(from, tz, 'yyyy-MM-dd')) };
+}
+
+/**
+ * 記録の行から「みんなの記録」用のデータを作る（計算だけの部分）
+ * 戻り値：{ 名前: { days: { 日付: { items: { 種目: {total, goal} }, memo } },
+ *                   menus: { 日付: [ {name, unit, goal, days[7]} ] } } }
+ * - from（'yyyy-MM-dd'）より前の日の記録は返さない。メニューは古いものも返す（その後の日の判定に使うため）
+ */
+function buildView_(rows, tz, from) {
+  var players = {};
+  rows.forEach(function (r) {
+    var date = dateStr_(r[2], tz);
+    if (!date) return;
+    var name = String(r[1] || '') || '（名前なし）';
+    var pl = players[name] || (players[name] = { days: {}, menus: {} });
+
+    if (r[4] === 'メニュー') {
+      try {
+        var m = JSON.parse(String(r[12] || ''));
+        if (Array.isArray(m)) pl.menus[date] = m;   // 同じ日は、あとから届いたものが最新
+      } catch (err) {}
+      return;
+    }
+    if (date < from) return;
+    var day = pl.days[date] || (pl.days[date] = { items: {}, memo: '' });
+    if (r[4] === 'メモ') { day.memo = String(r[12] || ''); return; }
+    var menu = String(r[3] || '');
+    if (!menu) return;
+    var it = day.items[menu] || (day.items[menu] = { total: 0, goal: 0 });
+    it.total += Number(r[10]) || 0;
+    if (Number(r[11]) > 0) it.goal = Number(r[11]);
+  });
+  return players;
 }
 
 // スプレッドシートを開いたときに、手動で集計し直すメニューを出す
@@ -49,13 +123,31 @@ function onOpen() {
     .addToUi();
 }
 
-// 記録シート＝「週間集計」以外で、いちばん左にあるシート
+// 記録シート＝「週間集計」「設定」以外で、いちばん左にあるシート
 function recordSheet_() {
   var sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
   for (var i = 0; i < sheets.length; i++) {
-    if (sheets[i].getName() !== SUMMARY_NAME) return sheets[i];
+    var n = sheets[i].getName();
+    if (n !== SUMMARY_NAME && n !== SETTINGS_NAME) return sheets[i];
   }
   return SpreadsheetApp.getActiveSpreadsheet().insertSheet('記録', 0);
+}
+
+// 「設定」シート（なければ作る）。B1 が合言葉
+function settingsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(SETTINGS_NAME);
+  if (sh) return sh;
+  recordSheet_();   // 記録シートを先に確定させてから、右はしに足す
+  sh = ss.insertSheet(SETTINGS_NAME, ss.getSheets().length);
+  sh.getRange('B1').setNumberFormat('@');   // 数字だけの合言葉でも、入れたとおりに持つ
+  sh.getRange('A1:A3').setValues([
+    ['合言葉'],
+    ['↑ B1に入れた合言葉を知っている人は、アプリの「みんなの記録」で全員の記録を見られます（' + MIN_PASS_LEN + '文字以上）'],
+    ['変えたいときは、B1を書きかえるだけです。空にすると、だれも見られなくなります']
+  ]);
+  sh.getRange('A1').setFontWeight('bold');
+  return sh;
 }
 
 // 見出し行がなければ作る。古い見出し（ひとこと列なし）なら足す
@@ -71,6 +163,7 @@ function rebuildSummary() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var rec = recordSheet_();
   ensureHeader_(rec);
+  settingsSheet_();
   var rows = rec.getLastRow() > 1
     ? rec.getRange(2, 1, rec.getLastRow() - 1, HEADER.length).getValues() : [];
   var out = buildSummary_(rows, ss.getSpreadsheetTimeZone());
@@ -105,7 +198,7 @@ function buildSummary_(rows, tz) {
 
   rows.forEach(function (r) {
     var date = dateStr_(r[2], tz);
-    if (!date) return;
+    if (!date || r[4] === 'メニュー') return;   // メニューの行は集計表には出さない
     var name = String(r[1] || '');
     var key = date + '|' + name;
     var day = days[key] || (days[key] = { week: mondayOf_(date), name: name, date: date, items: {}, memo: '' });

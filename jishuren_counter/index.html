@@ -107,6 +107,26 @@
   .wk-nav{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:2px solid var(--board-line)}
   .wk-nav .range{font-size:15px;color:var(--lamp);text-align:center}
   .wk-nav .sub{font-size:11px;color:var(--mute);text-align:center;margin-top:2px}
+  /* みんなの記録（コーチ・保護者用） */
+  .gate{padding:20px 16px;display:flex;flex-direction:column;gap:12px;max-width:440px;width:100%;margin:0 auto}
+  .gate p{font-size:13px;color:var(--mute);line-height:1.7}
+  .gate label{font-size:12px;color:var(--mute)}
+  .gate input[type="password"]{
+    width:100%;background:var(--board-deep);border:2px solid var(--board-line);border-radius:10px;
+    padding:12px;color:var(--chalk);font-size:16px;font-family:inherit;
+  }
+  .gate .chk{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--chalk)}
+  .gate .chk input{width:18px;height:18px}
+  .gate button.go{background:var(--grass);border:none;border-radius:12px;padding:15px;color:#fff;font-size:16px;font-weight:700}
+  #viewMsg{font-size:13px;color:var(--lamp);min-height:20px;line-height:1.6}
+  .who{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:2px solid var(--board-line)}
+  .who label{font-size:12px;color:var(--mute);white-space:nowrap}
+  .who select{
+    flex:1;min-width:0;background:var(--board-deep);border:2px solid var(--board-line);border-radius:10px;
+    padding:10px;color:var(--chalk);font-size:16px;font-family:inherit;
+  }
+  .open-view{width:100%;background:none;border:1px solid var(--mute);border-radius:10px;padding:12px;color:var(--chalk);font-size:14px}
+
   /* グラフ（文字の色は文字用トークン、色は 進み具合＝ランプ色／達成＝緑 の2役だけ） */
   .wk-charts{padding:12px 16px 0;display:flex;flex-direction:column;gap:8px}
   .card{background:var(--board-deep);border:2px solid var(--board-line);border-radius:12px;padding:12px}
@@ -320,9 +340,13 @@
 <section class="view" id="weekView">
   <header>
     <button class="gear" id="weekBack">← もどる</button>
-    <div class="title dot">1週間の記録</div>
+    <div class="title dot" id="weekTitle">1週間の記録</div>
     <span style="width:64px"></span>
   </header>
+  <div class="who" id="whoBar" hidden>
+    <label for="whoSel">だれの記録</label>
+    <select id="whoSel"></select>
+  </div>
   <div class="wk-nav">
     <button class="gear" id="weekPrev">‹ 前の週</button>
     <div>
@@ -333,6 +357,23 @@
   </div>
   <div class="wk-charts" id="weekCharts"></div>
   <div class="wk-list" id="weekList"></div>
+</section>
+
+<!-- ===================== みんなの記録（合言葉の入力） ===================== -->
+<section class="view" id="gateView">
+  <header>
+    <button class="gear" id="gateBack">← もどる</button>
+    <div class="title dot">みんなの記録</div>
+    <span style="width:64px"></span>
+  </header>
+  <div class="gate">
+    <p>コーチ・保護者用です。チームの合言葉を入れると、送信された全員の記録を見られます。</p>
+    <label for="viewKey">合言葉</label>
+    <input id="viewKey" type="password" autocomplete="off">
+    <label class="chk"><input id="viewRemember" type="checkbox">この端末に合言葉をおぼえる</label>
+    <button class="go" id="viewGo" type="button">記録を見る</button>
+    <div id="viewMsg"></div>
+  </div>
 </section>
 
 <!-- ===================== カウント画面 ===================== -->
@@ -385,6 +426,9 @@
   <label for="gasUrl">記録送信先URL（GASウェブアプリ）</label>
   <input id="gasUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec">
 
+  <h3>コーチ・保護者用</h3>
+  <button class="open-view" id="openView" type="button">みんなの記録を見る（合言葉が必要）</button>
+
   <h3>メニュー（種目をタップして編集）</h3>
   <div id="menuEdit"></div>
   <button class="add" id="addItem" type="button">＋ 種目を追加</button>
@@ -426,6 +470,8 @@
     snap: d => 'jr_snap_' + d,  // その日のメニューの控え [{id,name,unit,goal,due}]
     snapLast: 'jr_snap_last',   // 控えを最後に書いた日
     init: 'jr_init',            // 初回の引き継ぎ処理をすませた印
+    menuSent: 'jr_menu_sent',   // 送信ずみのメニュー（日付|内容）。変わったときだけ送る
+    viewKey: 'jr_view_key',     // 「みんなの記録」の合言葉（おぼえるにしたときだけ）
     menu: 'jr_menu',            // メニュー全体 [{id,name,unit,goal,mode,intv,days}]（旧形式 {id:{goal,intv,days}} も読める）
     hist: 'jr_history',         // セッション履歴（直近200件）
     gas:  'jr_gas_url',
@@ -496,6 +542,20 @@
     }
     store.set(LS.snap(tk), JSON.stringify(snapOf(menu, today)));   // きょうの分は、いまの設定で上書き
     store.set(LS.snapLast, tk);
+
+    // 送信先があり、記録したことがある端末は、きょうのメニューも送る（変わったときだけ）。
+    // 「みんなの記録」で、やっていない種目や達成率を出すために使う
+    if (store.get(LS.gas, '') && firstRecordDate()) {
+      const ms = JSON.stringify(menu.map(m => ({ name: m.name, unit: m.unit, goal: m.goal, days: m.days })));
+      if (store.get(LS.menuSent, '') !== tk + '|' + ms) {
+        const now = n.toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        const hist = store.json(LS.hist, []);
+        hist.push({ name: store.get(LS.name, ''), date: tk, menu: 'メニュー', type: 'メニュー', start: now, end: now,
+                    seconds: 0, voice: 0, manual: 0, total: 0, goal: 0, memo: ms, sent: false });
+        store.set(LS.hist, JSON.stringify(hist.slice(-200)));
+        store.set(LS.menuSent, tk + '|' + ms);
+      }
+    }
   }
 
   // その日の「やる種目の数」と「そのうち目標に届いた数」
@@ -557,6 +617,7 @@
     $('homeView').classList.toggle('on', view === 'home');
     $('countView').classList.toggle('on', view === 'count');
     $('weekView').classList.toggle('on', view === 'week');
+    $('gateView').classList.toggle('on', view === 'gate');
     window.scrollTo(0, 0);
   }
 
@@ -860,6 +921,50 @@
   // ===== 1週間の記録 =====
   let weekOffset = 0;   // 0 = 今週、-1 = 先週 …（週は月曜はじまり）
 
+  // ---- 週の画面が読むデータの出どころ ----
+  // 自分の端末の記録（localSrc）と、スプレッドシートから読んだ他の人の記録（remoteSrc）を、同じ形で読めるようにする
+  const localSrc = {
+    totals: key => dayTotals(key),                 // その日の {種目id: 回数}
+    menu:   dt  => dayMenu(dt),                    // その日のメニュー [{id,name,unit,goal,due}]
+    memo:   key => store.get(LS.memo(key), ''),    // その日のひとこと
+    first:  ()  => firstRecordDate(),              // 記録がある最初の日
+  };
+  let src = localSrc;
+  // スプレッドシートの1人分 {days:{日付:{items:{種目:{total,goal}},memo}}, menus:{日付:[{name,unit,goal,days}]}}
+  // 種目は名前で見分ける（スプレッドシートには id がないため）
+  function remoteSrc(pl) {
+    const menuDates = Object.keys(pl.menus || {}).sort();
+    const dayKeys = Object.keys(pl.days || {}).sort();
+    return {
+      totals: key => { const o = {}, d = pl.days[key]; if (d) for (const k in d.items) o[k] = d.items[k].total; return o; },
+      menu: dt => {
+        const key = dateKey(dt), day = pl.days[key], list = [], seen = {};
+        let md = null;   // その日に有効なメニュー＝その日以前でいちばん新しく届いたもの
+        for (const d of menuDates) { if (d <= key) md = d; else break; }
+        if (md) pl.menus[md].forEach(m => {
+          const nm = String(m.name || ''), rec = day && day.items[nm], g = parseInt(m.goal, 10);
+          if (!nm || seen[nm]) return;
+          seen[nm] = 1;
+          list.push({ id: nm, name: nm, unit: String(m.unit || ''), goal: rec && rec.goal > 0 ? rec.goal : (g > 0 ? g : 1),
+                      due: Array.isArray(m.days) && m.days[dt.getDay()] ? 1 : 0 });
+        });
+        // メニューにない種目の記録（メニューが届く前の日など）。メニューが1つもない日は「やる種目」として数える
+        if (day) for (const nm in day.items) if (!seen[nm]) {
+          const it = day.items[nm];
+          list.push({ id: nm, name: nm, unit: '', goal: it.goal > 0 ? it.goal : Math.max(it.total, 1), due: md ? 0 : 1 });
+        }
+        return list;
+      },
+      memo: key => (pl.days[key] || {}).memo || '',
+      first: () => dayKeys[0] || null,
+    };
+  }
+  function srcStat(dt) {
+    const t = src.totals(dateKey(dt));
+    const due = src.menu(dt).filter(x => x.due);
+    return { due: due.length, done: due.filter(x => (t[x.id] || 0) >= x.goal).length };
+  }
+
   // ---- グラフ用の集計 ----
   // 達成率 = 「その日やる種目」ごとの（回数÷目標、上限100%）の平均。お休みの種目・日は数えない
   // ※ 過去の日は、その日のメニューの控え（dayMenu）で計算する
@@ -868,9 +973,9 @@
     let sum = 0, cnt = 0;
     for (let i = 0; i < 7; i++) {
       const dt = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i);
-      const t = dayTotals(dateKey(dt));
+      const t = src.totals(dateKey(dt));
       let ds = 0, dc = 0;
-      dayMenu(dt).forEach(x => {
+      src.menu(dt).forEach(x => {
         const v = t[x.id] || 0;
         if (!x.due && v === 0) return;
         // 種目ごとの合計は id でまとめる（名前・単位は、その週でいちばん新しい日のもの）
@@ -933,7 +1038,7 @@
     }
 
     // 3) 週ごとの達成率のうつりかわり（直近8週、記録がある週から）
-    const first = firstRecordDate();
+    const first = src.first();
     const weeks = [];
     if (first) {
       const fp = first.split('-'), fd = new Date(+fp[0], +fp[1] - 1, +fp[2]);
@@ -980,14 +1085,14 @@
       const dt = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i);
       const key = dateKey(dt);
       const future = dt > today;
-      const t = dayTotals(key);
-      const st = dayStat(dt);
-      const memo = store.get(LS.memo(key), '');
+      const t = src.totals(key);
+      const st = srcStat(dt);
+      const memo = src.memo(key);
       const full = st.due > 0 && st.done === st.due;
       if (!future && st.due > 0) { dueDays++; if (full) fullDays++; }
 
       // その日やる種目と、お休みでも記録がある種目を出す
-      const chips = dayMenu(dt).filter(x => x.due || (t[x.id] || 0) > 0).map(x => {
+      const chips = src.menu(dt).filter(x => x.due || (t[x.id] || 0) > 0).map(x => {
         const v = t[x.id] || 0;
         return '<span class="chip' + (v >= x.goal ? ' ok' : v === 0 ? ' zero' : '') + '">' + esc(x.name) +
                '<b>' + v + '/' + x.goal + '</b></span>';
@@ -1006,13 +1111,84 @@
     $('weekList').innerHTML = html;
     $('weekNext').disabled = weekOffset >= 0;
   }
-  $('weekBtn').addEventListener('click', () => { weekOffset = 0; renderWeek(); show('week'); });
+  $('weekBtn').addEventListener('click', () => { src = localSrc; $('whoBar').hidden = true; weekOffset = 0; renderWeek(); show('week'); });
   // 折れ線の点を押したら、その週へ
   $('weekCharts').addEventListener('click', e => {
     const h = e.target.closest('.hit');
     if (h) { weekOffset = parseInt(h.dataset.off, 10); renderWeek(); window.scrollTo(0, 0); }
   });
-  $('weekBack').addEventListener('click', () => { renderHome(); show('home'); });
+  $('weekBack').addEventListener('click', () => {
+    src = localSrc; viewPlayers = null; $('whoBar').hidden = true;   // 読みこんだ他の人の記録は、もどるときに捨てる
+    renderHome(); show('home');
+  });
+
+  // ===== みんなの記録（コーチ・保護者用）=====
+  // 合言葉をGASに送り、合っていればスプレッドシートの記録（直近12週）を受け取って、週の画面で見せる。
+  // 合言葉はGAS側（「設定」シート）で確かめる。このページには書かない
+  let viewPlayers = null;
+  function openGate() {
+    $('viewMsg').textContent = store.get(LS.gas, '') ? '' : '記録送信先URLが設定されていません。「設定」で入れるか、URLつきのリンクから開いてください';
+    const saved = store.get(LS.viewKey, '');
+    $('viewKey').value = saved;
+    $('viewRemember').checked = !!saved;
+    show('gate');
+    if (saved && store.get(LS.gas, '')) loadView();
+  }
+  // GASから読む。ふつうの読みこみがブラウザに止められたときは、JSONP（scriptタグ）でもう一度ためす
+  function fetchView(url, key) {
+    const u = url + (url.indexOf('?') < 0 ? '?' : '&') + 'key=' + encodeURIComponent(key);
+    const parse = text => {
+      if (text.indexOf('自主練記録') === 0) throw new Error('OLD');
+      return JSON.parse(text);
+    };
+    const jsonp = () => new Promise((resolve, reject) => {
+      const cb = 'jrcb' + Date.now(), sc = document.createElement('script');
+      const done = fn => v => { clearTimeout(timer); try { delete window[cb]; } catch(e) {} sc.remove(); fn(v); };
+      const timer = setTimeout(done(reject), 15000, new Error('NET'));
+      window[cb] = done(resolve);
+      sc.onerror = done(() => reject(new Error('NET')));
+      sc.src = u + '&callback=' + cb;
+      document.head.appendChild(sc);
+    });
+    return fetch(u).then(r => r.text()).then(parse, () => jsonp());
+  }
+  function loadView() {
+    const url = store.get(LS.gas, ''), key = $('viewKey').value.trim();
+    if (!url) { $('viewMsg').textContent = '記録送信先URLが設定されていません'; return; }
+    if (!key) { $('viewMsg').textContent = '合言葉を入れてください'; return; }
+    $('viewGo').disabled = true;
+    $('viewMsg').textContent = '読みこみ中…';
+    fetchView(url, key).then(res => {
+      if (!res || !res.ok) { store.set(LS.viewKey, ''); throw new Error((res && res.error) || '読みこめませんでした'); }
+      store.set(LS.viewKey, $('viewRemember').checked ? key : '');
+      const players = {};
+      Object.keys(res.players || {}).forEach(nm => { if (Object.keys(res.players[nm].days || {}).length) players[nm] = res.players[nm]; });
+      const names = Object.keys(players).sort((a, b) => a.localeCompare(b, 'ja'));
+      if (!names.length) throw new Error('まだ記録が届いていません');
+      viewPlayers = players;
+      $('whoSel').innerHTML = names.map(nm => '<option value="' + esc(nm) + '">' + esc(nm) + '</option>').join('');
+      $('whoBar').hidden = false;
+      src = remoteSrc(players[names[0]]);
+      weekOffset = 0;
+      renderWeek();
+      $('viewMsg').textContent = '';
+      show('week');
+    }).catch(err => {
+      const m = err && err.message;
+      $('viewMsg').textContent =
+        m === 'OLD' ? 'スプレッドシート側のGASが古い版です。Code.gs を新しい版に差しかえて、デプロイを更新してください' :
+        m === 'NET' || !m || /fetch|JSON|token/i.test(m) ? '読みこめませんでした。電波と、記録送信先URLを確認してください' : m;
+    }).then(() => { $('viewGo').disabled = false; });
+  }
+  $('viewGo').addEventListener('click', loadView);
+  $('viewKey').addEventListener('keydown', e => { if (e.key === 'Enter') loadView(); });
+  $('gateBack').addEventListener('click', () => { renderHome(); show('home'); });
+  $('whoSel').addEventListener('change', () => {
+    if (!viewPlayers || !viewPlayers[$('whoSel').value]) return;
+    src = remoteSrc(viewPlayers[$('whoSel').value]);
+    weekOffset = 0;
+    renderWeek();
+  });
   $('weekPrev').addEventListener('click', () => { weekOffset--; renderWeek(); window.scrollTo(0, 0); });
   $('weekNext').addEventListener('click', () => { if (weekOffset < 0) { weekOffset++; renderWeek(); window.scrollTo(0, 0); } });
 
@@ -1123,7 +1299,8 @@
     $('histList').innerHTML = hist.map(r =>
       '<div class="' + (r.sent || !hasGas ? '' : 'unsent') + '">' +
       esc(r.date.slice(5)) + ' ' + esc(r.start.slice(0, 5)) + '　' + esc(r.menu) + ' ' +
-      (r.type === 'メモ' ? '「' + esc(r.memo || '') + '」' :
+      (r.type === 'メニュー' ? 'を送信' :
+       r.type === 'メモ' ? '「' + esc(r.memo || '') + '」' :
        r.type === 'リセット' ? '0に戻す（' + r.total + '）' : r.total + '（' + Math.floor(r.seconds / 60) + '分' + (r.seconds % 60) + '秒）') +
       (r.sent || !hasGas ? '' : '　未送信') + '</div>'
     ).join('') || '<div>まだ記録がありません</div>';
@@ -1174,6 +1351,7 @@
     sendUnsent();
   }
   $('closeDlg').addEventListener('click', saveSettings);
+  $('openView').addEventListener('click', () => { saveSettings(); openGate(); });   // 入れかけの送信先URLも保存してから開く
   $('closeTop').addEventListener('click', saveSettings);
 
   // ===== 初期化 =====
@@ -1198,9 +1376,11 @@
 
   renderHome();
   sendUnsent();
+  // コーチ・保護者に配るリンク（…?gas=…&view=1）は、合言葉の画面から開く
+  if (qp.get('view')) openGate();
   // 日付が変わったまま開きっぱなしのとき、もどってきたら表示を更新
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && !session && $('homeView').classList.contains('on')) renderHome();
+    if (document.visibilityState === 'visible' && !session && $('homeView').classList.contains('on')) { renderHome(); sendUnsent(); }
   });
 })();
 </script>
