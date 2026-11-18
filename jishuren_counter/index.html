@@ -107,6 +107,48 @@
   .wk-nav{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:2px solid var(--board-line)}
   .wk-nav .range{font-size:15px;color:var(--lamp);text-align:center}
   .wk-nav .sub{font-size:11px;color:var(--mute);text-align:center;margin-top:2px}
+  /* グラフ（文字の色は文字用トークン、色は 進み具合＝ランプ色／達成＝緑 の2役だけ） */
+  .wk-charts{padding:12px 16px 0;display:flex;flex-direction:column;gap:8px}
+  .card{background:var(--board-deep);border:2px solid var(--board-line);border-radius:12px;padding:12px}
+  .card h3{font-size:10px;font-weight:400;color:var(--mute);letter-spacing:.2em;margin-bottom:10px}
+  .top-row{display:flex;gap:14px;align-items:stretch}
+  .ring{flex:0 0 104px;display:flex;flex-direction:column;align-items:center}
+  .ring svg{width:104px;height:104px;display:block}
+  .ring .trk{stroke:var(--lamp-dim)}
+  .ring .prg{stroke:var(--lamp)}
+  .ring.full .prg{stroke:var(--grass-lit)}
+  .ring text{fill:var(--chalk);font-family:"DotGothic16",monospace}
+  .ring .cap{font-size:11px;color:var(--mute);margin-top:4px;text-align:center}
+  .daybars{flex:1;min-width:0;display:flex;flex-direction:column}
+  .db{flex:1;display:flex;gap:5px;align-items:flex-end}
+  .db-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0}
+  .db-val{font-size:10px;color:var(--chalk);font-family:"DotGothic16",monospace;min-height:12px}
+  .db-trk{width:100%;height:68px;border-radius:4px;background:#141d19;display:flex;align-items:flex-end;overflow:hidden}
+  .db-fill{width:100%;background:var(--lamp);border-radius:4px 4px 0 0;min-height:0}
+  .db-col.full .db-fill{background:var(--grass-lit)}
+  .db-col.rest .db-trk{background:none;border:1px dashed var(--board-line)}
+  .db-col.future .db-trk{opacity:.45}
+  .db-wd{font-size:11px;color:var(--mute)}
+  .db-col.today .db-wd{color:var(--chalk);font-weight:700}
+  .ib{margin-bottom:9px}
+  .ib:last-child{margin-bottom:0}
+  .ib-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:13px;margin-bottom:4px}
+  .ib-val{font-size:12px;color:var(--chalk);font-family:"DotGothic16",monospace;white-space:nowrap}
+  .ib-val small{color:var(--mute);font-size:11px}
+  .ib-trk{height:8px;border-radius:4px;background:#141d19;overflow:hidden}
+  .ib-fill{height:100%;background:var(--lamp);border-radius:4px}
+  .ib.full .ib-fill{background:var(--grass-lit)}
+  .trend svg{width:100%;height:auto;display:block}
+  .trend .grid{stroke:var(--board-line);stroke-width:1}
+  .trend .line{fill:none;stroke:var(--lamp);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+  .trend .area{fill:var(--lamp);opacity:.12}
+  .trend .pt{fill:var(--lamp);stroke:var(--board-deep);stroke-width:2}
+  .trend .pt.sel{fill:var(--chalk)}
+  .trend text{fill:var(--mute);font-size:10px;font-family:"DotGothic16",monospace}
+  .trend text.v{fill:var(--chalk);font-size:11px}
+  .trend .hit{fill:transparent;cursor:pointer}
+  .chart-note{font-size:12px;color:var(--mute)}
+
   .wk-list{flex:1;padding:12px 16px calc(20px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px}
   .wk-day{background:var(--board-deep);border:2px solid var(--board-line);border-radius:12px;padding:10px 12px}
   .wk-day.full{border-color:var(--grass)}
@@ -289,6 +331,7 @@
     </div>
     <button class="gear" id="weekNext">次の週 ›</button>
   </div>
+  <div class="wk-charts" id="weekCharts"></div>
   <div class="wk-list" id="weekList"></div>
 </section>
 
@@ -774,6 +817,109 @@
 
   // ===== 1週間の記録 =====
   let weekOffset = 0;   // 0 = 今週、-1 = 先週 …（週は月曜はじまり）
+
+  // ---- グラフ用の集計 ----
+  // 達成率 = 「その日やる種目」ごとの（回数÷目標、上限100%）の平均。お休みの種目・日は数えない
+  // ※ 目標と曜日は「いまの設定」で計算する（過去の設定は保存していない）
+  function weekData(mon, menu, today) {
+    const days = [], items = menu.map(m => ({ m: m, total: 0, target: 0 }));
+    let sum = 0, cnt = 0;
+    for (let i = 0; i < 7; i++) {
+      const dt = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i);
+      const t = dayTotals(dateKey(dt));
+      let ds = 0, dc = 0;
+      menu.forEach((m, k) => {
+        const v = t[m.id] || 0;
+        if (dueOn(m, dt)) { ds += Math.min(v / m.goal, 1); dc++; items[k].target += m.goal; items[k].total += v; }
+        else if (v > 0) items[k].total += v;
+      });
+      // 週の達成率は「きょうまで」の分で出す（これからの日を分母に入れると、週のとちゅうで低く見えるため）
+      if (dt <= today) { sum += ds; cnt += dc; }
+      days.push({ dt: dt, rate: dc ? ds / dc : null, future: dt > today, today: dateKey(dt) === dateKey(today) });
+    }
+    return { rate: cnt ? sum / cnt : null, days: days, items: items.filter(x => x.target > 0 || x.total > 0) };
+  }
+  // 記録が残っているいちばん古い日（'yyyy-MM-dd'）。なければ null
+  function firstRecordDate() {
+    let min = null;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf('jr_day_') === 0) { const d = k.slice(7); if (!min || d < min) min = d; }
+      }
+    } catch(e) {}
+    return min;
+  }
+  const pct = r => Math.round(r * 100);
+
+  function renderCharts(mon, menu, today, thisMon) {
+    const w = weekData(mon, menu, today);
+    const md = dt => (dt.getMonth() + 1) + '/' + dt.getDate();
+
+    // 1) 週の達成率（リング）＋ 日ごとの達成率（棒）
+    const r = w.rate === null ? 0 : w.rate, C = 2 * Math.PI * 42;
+    let html = '<div class="card"><div class="top-row">' +
+      '<div class="ring' + (w.rate !== null && pct(r) >= 100 ? ' full' : '') + '">' +
+      '<svg viewBox="0 0 104 104" role="img" aria-label="週の達成率 ' + pct(r) + 'パーセント">' +
+      '<circle class="trk" cx="52" cy="52" r="42" fill="none" stroke-width="10"/>' +
+      '<circle class="prg" cx="52" cy="52" r="42" fill="none" stroke-width="10" stroke-linecap="round" ' +
+        'stroke-dasharray="' + (C * r).toFixed(1) + ' ' + C.toFixed(1) + '" transform="rotate(-90 52 52)"' + (r <= 0 ? ' opacity="0"' : '') + '/>' +
+      '<text x="52" y="60" text-anchor="middle" font-size="24">' + pct(r) + '%</text></svg>' +
+      '<div class="cap">' + (weekOffset === 0 ? '今週の達成率<br>（きょうまで）' : 'この週の達成率') + '</div></div>' +
+      '<div class="daybars"><h3>日ごとの達成率（%）</h3><div class="db">' +
+      w.days.map(d => {
+        const rest = d.rate === null, p = rest ? 0 : pct(d.rate);
+        return '<div class="db-col' + (rest ? ' rest' : '') + (d.future ? ' future' : '') + (d.today ? ' today' : '') + (!rest && p >= 100 ? ' full' : '') + '">' +
+          '<div class="db-val">' + (rest ? '休' : d.future ? '' : p) + '</div>' +
+          '<div class="db-trk"><div class="db-fill" style="height:' + (d.future ? 0 : p) + '%"></div></div>' +
+          '<div class="db-wd">' + WD[d.dt.getDay()] + '</div></div>';
+      }).join('') + '</div></div></div></div>';
+
+    // 2) 種目ごとの1週間の合計（目標＝1日の目標 × やる日数）
+    if (w.items.length) {
+      html += '<div class="card"><h3>種目ごとの合計</h3>' + w.items.map(x => {
+        const p = x.target > 0 ? Math.min(100, pct(x.total / x.target)) : 100;
+        return '<div class="ib' + (x.target > 0 && x.total >= x.target ? ' full' : '') + '">' +
+          '<div class="ib-head"><span>' + esc(x.m.name) + '</span><span class="ib-val">' + x.total +
+          (x.target > 0 ? '<small> / ' + x.target + esc(x.m.unit) + '</small>' : '<small>' + esc(x.m.unit) + '</small>') + '</span></div>' +
+          '<div class="ib-trk"><div class="ib-fill" style="width:' + p + '%"></div></div></div>';
+      }).join('') + '</div>';
+    }
+
+    // 3) 週ごとの達成率のうつりかわり（直近8週、記録がある週から）
+    const first = firstRecordDate();
+    const weeks = [];
+    if (first) {
+      const fp = first.split('-'), fd = new Date(+fp[0], +fp[1] - 1, +fp[2]);
+      const firstMon = new Date(fd.getFullYear(), fd.getMonth(), fd.getDate() - ((fd.getDay() + 6) % 7));
+      for (let i = 7; i >= 0; i--) {
+        const m = new Date(thisMon.getFullYear(), thisMon.getMonth(), thisMon.getDate() - i * 7);
+        if (m >= firstMon) { const d = weekData(m, menu, today); weeks.push({ mon: m, off: -i, rate: d.rate === null ? 0 : d.rate }); }
+      }
+    }
+    html += '<div class="card trend"><h3>週ごとの達成率（%）</h3>';
+    if (weeks.length < 2) {
+      html += '<div class="chart-note">2週目から、折れ線グラフでくらべられます</div>';
+    } else {
+      const W = 300, H = 120, L = 26, R = 14, T = 16, B = 22;
+      const x = i => L + (W - L - R) * i / (weeks.length - 1), y = v => T + (H - T - B) * (1 - v);
+      const pts = weeks.map((k, i) => x(i).toFixed(1) + ',' + y(k.rate).toFixed(1));
+      html += '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="週ごとの達成率の折れ線グラフ">' +
+        [0, .5, 1].map(v => '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '"/>' +
+          '<text x="' + (L - 5) + '" y="' + (y(v) + 3.5) + '" text-anchor="end">' + (v * 100) + '</text>').join('') +
+        '<polygon class="area" points="' + x(0) + ',' + y(0) + ' ' + pts.join(' ') + ' ' + x(weeks.length - 1) + ',' + y(0) + '"/>' +
+        '<polyline class="line" points="' + pts.join(' ') + '"/>' +
+        weeks.map((k, i) => {
+          const sel = k.off === weekOffset, last = i === weeks.length - 1;
+          return '<circle class="pt' + (sel ? ' sel' : '') + '" cx="' + x(i).toFixed(1) + '" cy="' + y(k.rate).toFixed(1) + '" r="' + (sel ? 5.5 : 4) + '"/>' +
+            (sel || last ? '<text class="v" x="' + x(i).toFixed(1) + '" y="' + (y(k.rate) - 9).toFixed(1) + '" text-anchor="' + (last ? 'end' : i === 0 ? 'start' : 'middle') + '">' + pct(k.rate) + '</text>' : '') +
+            (i === 0 || last || sel ? '<text x="' + x(i).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + (last ? 'end' : i === 0 ? 'start' : 'middle') + '">' + md(k.mon) + '</text>' : '') +
+            '<circle class="hit" data-off="' + k.off + '" cx="' + x(i).toFixed(1) + '" cy="' + y(k.rate).toFixed(1) + '" r="16"><title>' + md(k.mon) + 'の週 ' + pct(k.rate) + '%</title></circle>';
+        }).join('') + '</svg><div class="chart-note" style="margin-top:6px">点を押すと、その週を表示します</div>';
+    }
+    html += '</div>';
+    $('weekCharts').innerHTML = html;
+  }
   function renderWeek() {
     const menu = getMenu();
     const n = new Date();
@@ -781,6 +927,8 @@
     const mon = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7) + weekOffset * 7);
     const md = dt => (dt.getMonth() + 1) + '/' + dt.getDate();
     let html = '', fullDays = 0, dueDays = 0;
+    const thisMon = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
+    renderCharts(mon, menu, today, thisMon);
 
     for (let i = 0; i < 7; i++) {
       const dt = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i);
@@ -813,6 +961,11 @@
     $('weekNext').disabled = weekOffset >= 0;
   }
   $('weekBtn').addEventListener('click', () => { weekOffset = 0; renderWeek(); show('week'); });
+  // 折れ線の点を押したら、その週へ
+  $('weekCharts').addEventListener('click', e => {
+    const h = e.target.closest('.hit');
+    if (h) { weekOffset = parseInt(h.dataset.off, 10); renderWeek(); window.scrollTo(0, 0); }
+  });
   $('weekBack').addEventListener('click', () => { renderHome(); show('home'); });
   $('weekPrev').addEventListener('click', () => { weekOffset--; renderWeek(); window.scrollTo(0, 0); });
   $('weekNext').addEventListener('click', () => { if (weekOffset < 0) { weekOffset++; renderWeek(); window.scrollTo(0, 0); } });
