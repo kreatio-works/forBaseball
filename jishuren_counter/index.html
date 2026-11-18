@@ -405,13 +405,18 @@
   //    種目の追加・削除は設定画面からできる（保存後は端末内のメニューが優先される）
   //    やる曜日（days）は [日,月,火,水,木,金,土] の順で 1=やる / 0=休み。初期値は毎日
   const DEFAULT_MENU = [
-    { id:'fukkin', name:'腹筋',         unit:'回', goal:30,  mode:'voice', intv:1.2 },
-    { id:'haikin', name:'背筋',         unit:'回', goal:30,  mode:'voice', intv:1.2 },
-    { id:'ude',    name:'腕立て',       unit:'回', goal:30,  mode:'voice', intv:1.2 },
+    { id:'fukkin', name:'腹筋',   unit:'回', goal:30, mode:'voice', intv:1.2 },
+    { id:'haikin', name:'背筋',   unit:'回', goal:30, mode:'voice', intv:1.2 },
+    { id:'ude',    name:'腕立て', unit:'回', goal:30, mode:'voice', intv:1.2 },
+  ];
+  // 2026/11/18 までの初期メニュー（野球向けの6種目）。
+  // それまでに使いはじめていた端末は、初回に1度だけこの6種目を端末に保存して、
+  // 初期メニューを変えたあとも今までどおり使えるようにする（下の「初期化」の引き継ぎ処理）。消さないこと
+  const LEGACY_MENU = DEFAULT_MENU.concat([
     { id:'dash',   name:'ダッシュ',     unit:'本', goal:10,  mode:'tap',   intv:10  },
     { id:'saka',   name:'坂道ダッシュ', unit:'本', goal:10,  mode:'tap',   intv:10  },
     { id:'suburi', name:'素振り',       unit:'回', goal:200, mode:'voice', intv:1.2 },
-  ];
+  ]);
 
   // ===== 保存先（端末内）=====
   // 素振りカウンター（sb_〜）と同じサイトに置いても混ざらないよう、jr_ で始める
@@ -420,6 +425,7 @@
     memo: d => 'jr_memo_' + d,  // その日のひとこと（文字列）
     snap: d => 'jr_snap_' + d,  // その日のメニューの控え [{id,name,unit,goal,due}]
     snapLast: 'jr_snap_last',   // 控えを最後に書いた日
+    init: 'jr_init',            // 初回の引き継ぎ処理をすませた印
     menu: 'jr_menu',            // メニュー全体 [{id,name,unit,goal,mode,intv,days}]（旧形式 {id:{goal,intv,days}} も読める）
     hist: 'jr_history',         // セッション履歴（直近200件）
     gas:  'jr_gas_url',
@@ -454,8 +460,7 @@
   function getMenu() {
     const raw = store.json(LS.menu, null);
     if (Array.isArray(raw)) return raw.map(normItem);
-    const ov = raw || {};   // 旧形式（初期メニューへの上書き）
-    return DEFAULT_MENU.map(m => normItem(Object.assign({}, m, ov[m.id] || {})));
+    return DEFAULT_MENU.map(normItem);   // まだ設定を保存していない端末
   }
   const dayTotals = d => store.json(LS.day(d), {});
   const dueOn = (m, dt) => !!m.days[dt.getDay()];   // その日が「やる曜日」か
@@ -1176,6 +1181,20 @@
   const qp = new URLSearchParams(location.search);
   if (qp.get('gas'))  store.set(LS.gas,  qp.get('gas').trim());
   if (qp.get('name')) store.set(LS.name, qp.get('name').trim());
+
+  // 引き継ぎ（端末ごとに1度だけ）：初期メニューを3種目に変える前から使っていた端末で、
+  // メニューをまだ保存していない場合は、以前の6種目（旧形式の目標・曜日の変更も反映）を保存する
+  if (!store.get(LS.init, '')) {
+    const raw = store.json(LS.menu, null);
+    if (!Array.isArray(raw)) {
+      const used = !!raw || !!firstRecordDate() || !!store.get(LS.snapLast, '') || store.json(LS.hist, []).length > 0;
+      if (used) {
+        const ov = raw || {};
+        store.set(LS.menu, JSON.stringify(LEGACY_MENU.map(m => normItem(Object.assign({}, m, ov[m.id] || {})))));
+      }
+    }
+    store.set(LS.init, '1');
+  }
 
   renderHome();
   sendUnsent();
