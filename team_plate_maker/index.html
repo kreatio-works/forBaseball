@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>チーム名札メーカー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;900&display=swap">
+<style>
+  :root{
+    --bg:#f3f4f1; --ink:#243026; --muted:#6b756d; --line:#d8dcd6; --panel:#ffffff;
+    --accent:#2f6b3f; --board:#1f3527;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#171a18; --ink:#e8ebe6; --muted:#9aa39c; --line:#2d332e; --panel:#1f2420; --board:#0f1a13;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#171a18; --ink:#e8ebe6; --muted:#9aa39c; --line:#2d332e; --panel:#1f2420; --board:#0f1a13;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Noto Sans JP","Hiragino Sans","Yu Gothic",sans-serif;
+    font-size:15px; line-height:1.6;
+  }
+  .app{max-width:960px; margin:0 auto; padding:20px 16px 48px}
+  h1{font-size:18px; font-weight:500; margin:0 0 4px}
+  .lead{color:var(--muted); font-size:13px; margin:0 0 20px}
+
+  .field{margin-bottom:18px}
+  .field label{display:block; font-size:13px; color:var(--muted); margin-bottom:6px}
+  input[type=text]{
+    width:100%; font:inherit; font-size:22px; font-weight:500;
+    padding:10px 14px; border:1px solid var(--line); border-radius:8px;
+    background:var(--panel); color:var(--ink); letter-spacing:.04em;
+  }
+  input[type=text]:focus{outline:2px solid var(--accent); outline-offset:1px}
+  .count{font-size:13px; color:var(--muted); margin-top:6px; min-height:1.6em}
+  .count strong{color:var(--ink); font-weight:500}
+
+  .swatches{display:flex; gap:10px; flex-wrap:wrap}
+  .sw{
+    width:44px; height:44px; border-radius:8px; border:2px solid transparent;
+    cursor:pointer; padding:0; position:relative;
+  }
+  .sw.on{border-color:var(--ink); box-shadow:0 0 0 2px var(--panel) inset}
+  .sw:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+  .row{display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end}
+  .row .field{flex:1 1 200px}
+  .check{display:flex; align-items:center; gap:8px; font-size:14px; padding-bottom:4px}
+  .check input{width:18px; height:18px; accent-color:var(--accent)}
+
+  /* preview */
+  .board{
+    background:var(--board); border-radius:10px; padding:18px;
+    margin:8px 0 18px; overflow:hidden;
+  }
+  .board-inner{display:flex; gap:4px; justify-content:center; transform-origin:top left}
+  .preview-note{font-size:12px; color:var(--muted); margin-top:8px}
+
+  .sheet{
+    width:297mm; height:210mm; flex:none; position:relative;
+    display:flex; align-items:center; overflow:hidden;
+    color:#fff; font-family:"Noto Sans JP","Hiragino Sans","Yu Gothic",sans-serif; font-weight:900;
+  }
+  .sheet .cell{
+    flex:1 1 0; height:100%; display:flex; align-items:center; justify-content:center;
+    line-height:1; white-space:nowrap;
+  }
+  .sheet.one .cell{font-size:172mm}
+  .sheet.two .cell{font-size:126mm}
+  /* single char on a 2-char sized sheet */
+  .sheet.two.solo{justify-content:center}
+  .sheet.two.solo .cell{flex:0 0 50%}
+  .sheet .tag{
+    position:absolute; right:6mm; bottom:4mm; font-size:3.2mm; font-weight:500;
+    opacity:.45; letter-spacing:.08em;
+  }
+
+  .actions{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+  button.primary{
+    font:inherit; font-size:15px; font-weight:500; padding:12px 22px;
+    background:var(--accent); color:#fff; border:0; border-radius:8px; cursor:pointer;
+  }
+  button.primary:disabled{opacity:.4; cursor:default}
+  button.primary:focus-visible{outline:2px solid var(--ink); outline-offset:2px}
+  .howto{font-size:13px; color:var(--muted); margin-top:14px}
+  .howto p{margin:4px 0}
+
+  #print{display:none}
+
+  @media print{
+    @page{size:A4 landscape; margin:0}
+    body{background:#fff}
+    .app{display:none}
+    #print{display:block}
+    #print .sheet{page-break-after:always; break-after:page}
+    #print .sheet:last-child{page-break-after:auto; break-after:auto}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>チーム名札メーカー</h1>
+  <p class="lead">チーム名を入れると、A4横の札を必要枚数ぶん作ります。印刷してラミネートし、得点ボードに並べてください。</p>
+
+  <div class="field">
+    <label for="name">チーム名（8文字まで）</label>
+    <input id="name" type="text" maxlength="8" placeholder="例：〇〇シニア" autocomplete="off" inputmode="text">
+    <div class="count" id="count"></div>
+  </div>
+
+  <div class="row">
+    <div class="field">
+      <label>地の色</label>
+      <div class="swatches" id="swatches"></div>
+    </div>
+    <div class="field" style="flex:0 0 auto">
+      <label class="check"><input type="checkbox" id="tag" checked> 隅に「1/3」の順番を小さく印字する</label>
+    </div>
+  </div>
+
+  <div class="board"><div class="board-inner" id="preview"></div></div>
+  <p class="preview-note" id="note"></p>
+
+  <div class="actions">
+    <button class="primary" id="print-btn" disabled>PDFを保存／印刷する</button>
+  </div>
+  <div class="howto">
+    <p>iPhone：印刷画面が開いたら、プレビューをピンチで広げて共有ボタン → 「ファイルに保存」でPDFになります。</p>
+    <p>パソコン：送信先を「PDFに保存」にして保存、または印刷。用紙はA4横、余白なし・拡大縮小100%で。</p>
+  </div>
+</div>
+
+<div id="print"></div>
+
+<script>
+(function(){
+  var COLORS = [
+    {name:'明るい緑', hex:'#3f8a4e'},
+    {name:'標準の緑', hex:'#2f6b3f'},
+    {name:'やや濃い緑', hex:'#27593a'},
+    {name:'濃い緑', hex:'#1f4a30'},
+    {name:'深緑', hex:'#173a26'}
+  ];
+  var MAX = 8;
+
+  var nameEl = document.getElementById('name');
+  var countEl = document.getElementById('count');
+  var noteEl = document.getElementById('note');
+  var swEl = document.getElementById('swatches');
+  var tagEl = document.getElementById('tag');
+  var prevEl = document.getElementById('preview');
+  var printEl = document.getElementById('print');
+  var btn = document.getElementById('print-btn');
+
+  var color = COLORS[1].hex;
+  try{ var saved = localStorage.getItem('plate-color'); if(saved) color = saved; }catch(e){}
+
+  COLORS.forEach(function(c){
+    var b = document.createElement('button');
+    b.type='button'; b.className='sw'; b.style.background=c.hex;
+    b.title=c.name; b.setAttribute('aria-label', c.name);
+    b.dataset.hex=c.hex;
+    b.addEventListener('click', function(){
+      color=c.hex;
+      try{ localStorage.setItem('plate-color', color); }catch(e){}
+      markSwatch(); render();
+    });
+    swEl.appendChild(b);
+  });
+  function markSwatch(){
+    Array.prototype.forEach.call(swEl.children, function(b){
+      b.classList.toggle('on', b.dataset.hex===color);
+    });
+  }
+
+  // Split characters (handles surrogate pairs), drop spaces
+  function chars(s){
+    return Array.from(s.replace(/[\s　]/g,''));
+  }
+
+  // Layout rule:
+  //  1-3 chars -> 1 char per sheet (large)
+  //  4-8 chars -> 2 chars per sheet (medium); odd count puts a single char on the middle sheet
+  function layout(cs){
+    var n = cs.length;
+    if(n===0) return [];
+    if(n<=3) return cs.map(function(c){ return {size:'one', chars:[c]}; });
+    var sheets = Math.ceil(n/2);
+    var groups = [];
+    if(n%2===0){
+      for(var i=0;i<n;i+=2) groups.push([cs[i],cs[i+1]]);
+    }else{
+      var soloIdx = Math.floor(sheets/2);           // middle sheet (or right-of-center for even sheet counts)
+      var p = 0;
+      for(var s=0;s<sheets;s++){
+        if(s===soloIdx){ groups.push([cs[p]]); p+=1; }
+        else { groups.push([cs[p],cs[p+1]]); p+=2; }
+      }
+    }
+    return groups.map(function(g){ return {size:'two', chars:g}; });
+  }
+
+  function buildSheet(g, idx, total){
+    var d = document.createElement('div');
+    d.className = 'sheet ' + g.size + (g.size==='two' && g.chars.length===1 ? ' solo' : '');
+    d.style.background = color;
+    g.chars.forEach(function(c){
+      var cell = document.createElement('div');
+      cell.className='cell'; cell.textContent=c;
+      d.appendChild(cell);
+    });
+    if(tagEl.checked && total>1){
+      var t=document.createElement('div'); t.className='tag';
+      t.textContent = (idx+1)+' / '+total;
+      d.appendChild(t);
+    }
+    return d;
+  }
+
+  function render(){
+    var cs = chars(nameEl.value).slice(0,MAX);
+    var groups = layout(cs);
+    prevEl.innerHTML=''; printEl.innerHTML='';
+    groups.forEach(function(g,i){
+      prevEl.appendChild(buildSheet(g,i,groups.length));
+      printEl.appendChild(buildSheet(g,i,groups.length));
+    });
+    btn.disabled = groups.length===0;
+
+    if(cs.length===0){
+      countEl.textContent='';
+      noteEl.textContent='';
+    }else{
+      var per = groups[0].size==='one' ? '1枚に1文字' : '1枚に2文字';
+      countEl.innerHTML = cs.length+'文字 → <strong>A4横 '+groups.length+'枚</strong>（'+per+'）';
+      noteEl.textContent = '実際のボードに並べたときのイメージです。紙の継ぎ目は細い線で示しています。';
+    }
+    fit();
+  }
+
+  function fit(){
+    var n = prevEl.children.length;
+    if(!n){ prevEl.style.transform=''; prevEl.parentNode.style.height='48px'; return; }
+    var pxW = 297*3.7795, pxH = 210*3.7795, gap=4;
+    var total = n*pxW + (n-1)*gap;
+    var avail = prevEl.parentNode.clientWidth - 36;
+    var s = Math.min(1, avail/total);
+    prevEl.style.transform='scale('+s+')';
+    prevEl.style.width = total+'px';
+    prevEl.parentNode.style.height = (pxH*s + 36)+'px';
+  }
+
+  nameEl.addEventListener('input', render);
+  tagEl.addEventListener('change', render);
+  window.addEventListener('resize', fit);
+  btn.addEventListener('click', function(){ window.print(); });
+
+  markSwatch();
+  render();
+  if(document.fonts && document.fonts.ready){ document.fonts.ready.then(fit); }
+})();
+</script>
+</body>
+</html>
